@@ -1,23 +1,16 @@
 # Third-Party Notices
 
-This document lists third-party content bundled in this repository and the licence terms
-that apply to each part. It covers the Unity project at `unity/SBGamesMLAgents/`.
+This document lists third-party content bundled in this repository and the licence terms that apply to each part. It covers the Unity project at `unity/SBGamesMLAgents/`.
 
 ## 1. Author's own work
 
-The following paths are the author's (Lucas Brandao's) own work: `unity/SBGamesMLAgents/Assets/Basic`,
-`unity/SBGamesMLAgents/Assets/FlappyBird`, the project documentation, and the scripts and
-configuration files in this repository outside the third-party paths listed in this document.
-Their licence terms are stated in the repository's LICENSE file(s). This document does not name
-that licence; the choice of licence is still pending.
+The following paths are the author's (Lucas Brandao's) own work: `unity/SBGamesMLAgents/Assets/Basic`, `unity/SBGamesMLAgents/Assets/FlappyBird`, the project documentation, and the scripts and configuration files in this repository outside the third-party paths listed in this document. Their licence terms are stated in the repository's LICENSE file(s). This document does not name that licence; the choice of licence is still pending.
 
 ## 2. Unity ML-Agents example assets
 
-Copyright Unity Technologies. Licensed under the Apache License, Version 2.0. Source:
-`https://github.com/Unity-Technologies/ml-agents/tree/release_22/Project/Assets/ML-Agents/Examples/SharedAssets`.
+Copyright Unity Technologies. Licensed under the Apache License, Version 2.0. Source: `https://github.com/Unity-Technologies/ml-agents/tree/release_22/Project/Assets/ML-Agents/Examples/SharedAssets`.
 
-The following files under `unity/SBGamesMLAgents/Assets/SharedAssets/` are copied from that
-source, each together with its Unity `.meta` companion file:
+The following files under `unity/SBGamesMLAgents/Assets/SharedAssets/` are copied from that source, each together with its Unity `.meta` companion file:
 
 - `Materials/AgentBlue.mat`
 - `Materials/Black.mat`
@@ -33,14 +26,9 @@ source, each together with its Unity `.meta` companion file:
 - `Prefabs/Directional_Light.prefab`
 - `Scripts/ProjectSettingsOverrides.cs`
 
-Script changes for Unity 6.3: `Scripts/ProjectSettingsOverrides.cs` is unmodified. It is byte
-identical to the upstream `release_22` source, verified by diffing it against
-`sources/tcc-repo/Project/Assets/SharedAssets/Scripts/ProjectSettingsOverrides.cs` (the 2024
-thesis repository, itself a fork of `release_22`), which shows no differences.
+Script changes for Unity 6.3: `Scripts/ProjectSettingsOverrides.cs` is unmodified. It is byte identical to the upstream `release_22` source, verified by diffing it against `sources/tcc-repo/Project/Assets/SharedAssets/Scripts/ProjectSettingsOverrides.cs` (the 2024 thesis repository, itself a fork of `release_22`), which shows no differences.
 
-The Apache License, Version 2.0 full text follows. The `LICENSE.md` file in the ml-agents
-repository at that source URL is a short notice pointing to this licence rather than the full
-text, so the text below was instead fetched from `https://www.apache.org/licenses/LICENSE-2.0.txt`.
+The Apache License, Version 2.0 full text follows. The `LICENSE.md` file in the ml-agents repository at that source URL is a short notice pointing to this licence rather than the full text, so the text below was instead fetched from `https://www.apache.org/licenses/LICENSE-2.0.txt`.
 
 ```
                                  Apache License
@@ -248,15 +236,8 @@ text, so the text below was instead fetched from `https://www.apache.org/license
 
 ## 3. Unity packages
 
-This project consumes `com.unity.ml-agents` 4.1.0, `com.unity.ai.inference` 2.6.1, and other
-packages from the Unity package registry under their own licence terms. Nothing from these
-packages is vendored in this repository; the Unity Package Manager downloads them on first open
-of the project. `com.unity.nuget.newtonsoft-json` wraps Newtonsoft.Json (MIT licence) and is
-likewise fetched by the Package Manager, not shipped in this repository.
+This project consumes `com.unity.ml-agents` 4.1.0, `com.unity.ai.inference` 2.6.1, and other packages from the Unity package registry under their own licence terms. Nothing from these packages is vendored in this repository; the Unity Package Manager downloads them on first open of the project. `com.unity.nuget.newtonsoft-json` wraps Newtonsoft.Json (MIT licence) and is likewise fetched by the Package Manager, not shipped in this repository.
 
 ## 4. FlappyBird sprites and sounds
 
-The original thesis project used a sprite sheet and three sound files obtained from
-spriters-resource.com and sounds-resource.com. Those files are assets of the original Flappy
-Bird game by .GEARS Studios. They are NOT included in this repository. Until replacement assets
-are added, the FlappyBird scene in this project renders without sprites and without sound.
+The original thesis project used a sprite sheet and three sound files obtained from spriters-resource.com and sounds-resource.com. Those files are assets of the original Flappy Bird game by .GEARS Studios. They are NOT included in this repository. Until replacement assets are added, the FlappyBird scene in this project renders without sprites and without sound.
