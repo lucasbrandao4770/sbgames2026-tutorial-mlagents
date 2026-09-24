@@ -71,14 +71,13 @@ Dentro da pasta do repositório, no PowerShell:
 ```powershell
 py -3.10 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu
-pip install mlagents==1.1.0
+pip install -r requirements.txt
 mlagents-learn --help
 ```
 
 Se o PowerShell recusar o `Activate.ps1` com uma mensagem sobre execução de scripts desabilitada, rode `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirme e ative de novo.
 
-O PyTorch vem antes porque o mlagents aceita qualquer torch a partir da 2.1.1, e sem essa ordem o pip instalaria a versão mais nova, que não foi testada no tutorial.
+O `requirements.txt` está na raiz do repositório clonado e fixa `torch==2.2.1` pelo índice de CPU do PyTorch e `mlagents==1.1.0`. O mlagents aceita qualquer torch a partir da 2.1.1, mas o tutorial testou só a 2.2.1. Esse arquivo vale para Windows e Linux x86_64; no macOS em Apple Silicon use os comandos da subseção 3.4, o desvio documentado para essa plataforma.
 
 O comando `mlagents-learn --help` deve imprimir a lista de opções do treinador. Se isso acontecer, os pacotes Python estão prontos.
 

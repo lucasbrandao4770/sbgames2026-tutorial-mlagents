@@ -444,3 +444,5 @@ http-client.private.env.json
 # Generated ML-Agents telemetry, written under any Unity project folder.
 unity/**/Assets/ML-Agents/
 unity/**/Assets/ML-Agents.meta
+# Unzipped FlappyBird build, downloaded from the GitHub Release by each participant.
+/builds/
