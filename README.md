@@ -28,6 +28,12 @@ O tutorial propõe uma abordagem pedagógica estruturada para a transição entr
 | 3. Projeto final | 75 min | Agente autônomo em jogo ou ambiente simulado complexo |
 | 4. Encerramento | 15 min | Síntese, próximos passos e guia de referência |
 
+## Licença
+
+O código deste repositório (scripts C#, scripts Python, configurações de treinamento e o projeto Unity) está sob a licença MIT, no arquivo `LICENSE`. Os textos, a documentação e os materiais didáticos (`README.md`, `docs/` e slides) estão sob a licença Creative Commons Atribuição 4.0 Internacional, no arquivo `LICENSE-docs`.
+
+Exceções: os assets de exemplo da Unity em `unity/SBGamesMLAgents/Assets/SharedAssets/` seguem a licença Apache 2.0 da Unity Technologies, e os sprites e sons do Flappy Bird em `Assets/FlappyBird/Sprites/` e `Assets/FlappyBird/Sounds/` pertencem aos seus autores originais e são usados apenas para fins educacionais. Os detalhes estão em `THIRD_PARTY_NOTICES.md`.
+
 ## Autores
 
 Instituto de Informática, Universidade Federal de Goiás (UFG)
