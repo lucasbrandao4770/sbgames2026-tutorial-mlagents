@@ -1,0 +1,16 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+
+# ML-Agents training output created in the repo root
+results/
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
