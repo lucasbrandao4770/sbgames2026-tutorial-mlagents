@@ -1,0 +1,7 @@
+# Pilha Python do tutorial para Windows e Linux x86_64.
+# No macOS em Apple Silicon (arm64), não use este arquivo: siga a subseção 3.4 de docs/00-instalacao.md, que contorna os desvios da subseção 3.3.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.1
+# O mlagents importa pkg_resources, que o setuptools 82 removeu; o ambiente testado usa setuptools abaixo da 80.
+setuptools<80
+mlagents==1.1.0

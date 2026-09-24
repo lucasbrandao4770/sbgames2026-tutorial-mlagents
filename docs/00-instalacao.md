@@ -6,8 +6,8 @@ Tempo estimado: cerca de 40 minutos no Windows ou no macOS, com uma boa conexão
 
 O tutorial pode ser acompanhado de duas formas.
 
-- **Caminho A (completo).** Unity Editor mais Python. Você clona o repositório, abre o projeto Unity e treina os agentes pelo terminal.
-- **Caminho B (sem Editor).** Só Python, mais os binários do jogo FlappyBird já compilados para Windows. Os binários são distribuídos no dia do tutorial e também pela aba Releases deste repositório no GitHub. O Caminho B é mais rápido, porque não baixa o Unity. Como os binários são só para Windows, no macOS e no Linux use o Caminho A.
+- **Caminho A (opcional).** Unity Editor mais Python, para quem tem uma conta Unity ID própria. Você clona o repositório, abre o projeto Unity e treina os agentes pelo terminal.
+- **Caminho B (padrão).** Só Python, mais o jogo FlappyBird já compilado para Windows ou macOS. Baixe o build na aba Releases deste repositório no GitHub e descompacte em `builds/`, na raiz do repositório, como descrito no README. O Caminho B é mais rápido, porque não baixa o Unity. No Linux, que não tem build, use o Caminho A.
 
 Escolha um caminho antes de instalar. Nas seções de Windows e macOS, os passos que valem só para o Caminho A estão marcados no título da subseção.
 
@@ -23,7 +23,7 @@ Escolha um caminho antes de instalar. Nas seções de Windows e macOS, os passos
 | PyTorch | 2.2.1, versão para CPU | Obrigatório | Obrigatório |
 | mlagents (inclui mlagents-envs) | 1.1.0 | Obrigatório | Obrigatório |
 | Git, ou download do ZIP | - | Obrigatório | Obrigatório |
-| Binários do FlappyBird para Windows | pacote do tutorial | Não precisa | Obrigatório |
+| Build do FlappyBird (Windows ou macOS) | Release v0.9.0 do repositório | Recomendado, treina mais rápido que o Editor | Obrigatório |
 
 O pacote `com.unity.ml-agents` vem declarado no projeto Unity do tutorial. O Unity baixa esse pacote sozinho na primeira abertura do projeto. Você instala só o Editor.
 
@@ -71,14 +71,13 @@ Dentro da pasta do repositório, no PowerShell:
 ```powershell
 py -3.10 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu
-pip install mlagents==1.1.0
+pip install -r requirements.txt
 mlagents-learn --help
 ```
 
 Se o PowerShell recusar o `Activate.ps1` com uma mensagem sobre execução de scripts desabilitada, rode `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirme e ative de novo.
 
-O PyTorch vem antes porque o mlagents aceita qualquer torch a partir da 2.1.1, e sem essa ordem o pip instalaria a versão mais nova, que não foi testada no tutorial.
+O `requirements.txt` está na raiz do repositório clonado. Ele fixa `torch==2.2.1` pelo índice de CPU do PyTorch, `mlagents==1.1.0` e `setuptools<80`, porque o mlagents ainda importa o módulo `pkg_resources`, que o setuptools 82 removeu. O mlagents aceita qualquer torch a partir da 2.1.1, mas o tutorial testou só a 2.2.1. Esse arquivo vale para Windows e Linux x86_64. No macOS em Apple Silicon, use os comandos da subseção 3.4, que contornam os desvios da subseção 3.3.
 
 O comando `mlagents-learn --help` deve imprimir a lista de opções do treinador. Se isso acontecer, os pacotes Python estão prontos.
 
@@ -165,11 +164,13 @@ mlagents-learn --help
 
 Se as duas checagens passarem, a parte Python está pronta. No Caminho A, confira também se o projeto abre no Editor, como nas subseções 2.5 e 3.5.
 
+No Caminho B, teste também o build antes do dia, a partir da raiz do repositório, com o comando do Módulo 1 do README (seção Como treinar) e `--run-id=teste`; pare com `Ctrl+C` quando aparecer o primeiro resumo de passos. No macOS, se o sistema bloquear o FlappyBird por ser de um desenvolvedor não identificado, rode `xattr -dr com.apple.quarantine builds/FlappyBird.app` ou abra com o botão direito e "Abrir", e repita. No Windows, se o SmartScreen bloquear o executável, clique em "Mais informações" e depois em "Executar assim mesmo"; se o firewall perguntar sobre o Python na primeira vez que o `mlagents-learn` rodar, permita em redes privadas, porque o treino conversa só com a própria máquina.
+
 ## 5. Problemas comuns
 
 - **`ModuleNotFoundError: No module named 'pkg_resources'`.** O ambiente virtual não tem setuptools ou tem a versão 82 ou mais recente, que não traz esse módulo. Rode `pip install "setuptools<80"` com o ambiente ativado e repita o comando que falhou.
 - **Versão errada do Python.** O mlagents 1.1.0 aceita só versões de 3.10.1 a 3.10.12. Confira com `python --version`, com o ambiente virtual ativado. Se a versão estiver errada, apague a pasta `.venv` e crie o ambiente de novo com o Python certo.
-- **PyTorch com CUDA por engano.** No Linux, o torch do PyPI vem com CUDA e ocupa vários GB. No Windows, o mesmo acontece com índices de CUDA, como o `cu121`. O tutorial usa só CPU. Para trocar, rode `pip uninstall torch` e instale de novo com o índice CPU, como na subseção 2.4.
+- **PyTorch com CUDA por engano.** No Linux, o torch do PyPI vem com CUDA e ocupa vários GB. No Windows, o mesmo acontece com índices de CUDA, como o `cu121`. O tutorial usa só CPU. Para trocar, rode `pip uninstall torch` e depois `pip install -r requirements.txt`, como na subseção 2.4.
 - **Licença do Unity não ativada.** O Editor pede login ao abrir. Entre no Hub com a conta Unity ID e confira a licença em Settings, Licenses, como na subseção 2.1.
 - **Hub pede outra versão do Editor.** O projeto usa a versão 6000.3.22f1. Se o Hub avisar que ela está faltando, instale essa versão como na subseção 2.1, em vez de abrir o projeto em outra. Abra sempre pela pasta `unity/SBGamesMLAgents` do repositório clonado.
 

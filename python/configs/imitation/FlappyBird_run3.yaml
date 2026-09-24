@@ -1,0 +1,50 @@
+# Configuração de treinamento do FlappyAgent combinando PPO com Aprendizado por Imitação (IL): Clonagem Comportamental (BC) e GAIL.
+# Run 3 de 3 do TCC (2024): recompensa extrínseca forte (strength 1.0, dez vezes o 0.1 do FlappyBird_ppo.yaml do Módulo 1) e imitação bem fraca (behavioral_cloning e gail com strength 0.1 cada), usando a demonstração Leve2FlappyAgentDemo.demo.
+# Leve2FlappyAgentDemo.demo é a grafia original do arquivo de demonstração; foi mantida porque este yaml e o run2 referenciam esse nome exato.
+# No TCC, este run partiu do modelo final do run2 (opção --initialize-from), já com as regras do build do tutorial, em que colidir com cano ou parede reinicia o jogo. Rodado sozinho, ele treina do zero e não reproduz a curva de results/reference/FlappyBird_il_run3.
+behaviors:
+  FlappyAgent:
+    # PPO é o algoritmo de base deste treino; os blocos de behavioral_cloning e reward_signals.gail abaixo se somam a ele, não o substituem.
+    trainer_type: ppo
+
+    # Hiperparâmetros do PPO: tamanho de lote, buffer de experiências e taxa de aprendizado, iguais aos do FlappyBird_ppo.yaml do Módulo 1.
+    hyperparameters:
+      batch_size: 256
+      buffer_size: 1024
+      learning_rate: 3.0e-4
+      learning_rate_schedule: linear
+
+      # beta pesa a entropia da política e incentiva exploração, epsilon limita o quanto o PPO muda a política a cada atualização, lambd é o fator do GAE, e num_epoch é quantas vezes cada buffer é reaproveitado por atualização.
+      beta: 5.0e-4
+      epsilon: 0.2
+      lambd: 0.99
+      num_epoch: 3
+
+    # Rede neural da política: sem normalização de observações, 128 unidades por camada, 2 camadas, iguais às do FlappyBird_ppo.yaml.
+    network_settings:
+      normalize: false
+      hidden_units: 128
+      num_layers: 2
+
+    # max_steps igual ao do run de PPO puro (50000), para comparar as curvas dos dois no mesmo eixo do TensorBoard.
+    max_steps: 50000
+    time_horizon: 200
+    summary_freq: 2000
+    keep_checkpoints: 5
+    checkpoint_interval: 10000
+
+    reward_signals:
+      # Recompensa extrínseca: a do próprio jogo, AddReward(1.0f) ao passar o vão de um cano e AddReward(-1.0f) ao colidir com cano ou parede; strength 1.0 usa essa recompensa com peso cheio, dez vezes o peso do FlappyBird_ppo.yaml do Módulo 1 (0.1).
+      extrinsic:
+        strength: 1.0
+        gamma: 0.99
+      # GAIL (Generative Adversarial Imitation Learning): um discriminador aprende a distinguir trajetórias do agente das trajetórias da demonstração, e essa diferença vira uma recompensa extra.
+      # demo_path é relativo ao diretório de trabalho: rode o mlagents-learn a partir da raiz do repositório, nunca da pasta python/.
+      gail:
+        demo_path: Demos/Leve2FlappyAgentDemo.demo
+        strength: 0.1
+
+    # Clonagem Comportamental (BC): perda supervisionada que aproxima a política das ações observadas na demonstração, além da recompensa do ambiente.
+    behavioral_cloning:
+      demo_path: Demos/Leve2FlappyAgentDemo.demo
+      strength: 0.1
