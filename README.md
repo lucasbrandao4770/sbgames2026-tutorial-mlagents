@@ -66,9 +66,10 @@ mlagents-learn python/configs/desafio/FlappyBird_desafio.yaml --env=<build> --ru
 
 Regras do dia:
 
-- Para relançar um `--run-id` já usado, adicione `--force`; sem essa opção o mlagents-learn recusa sobrescrever o run.
+- Para relançar um `--run-id` já usado, adicione `--force` para sobrescrever o run, ou escolha um novo `--run-id` para manter o anterior; sem `--force`, o mlagents-learn recusa sobrescrever.
 - Às 10h05 o treino do Módulo 1 para com `Ctrl+C`, tenha ou não terminado os 50 mil passos: o ONNX é exportado mesmo assim, e as curvas são lidas como estão.
-- Os resultados de cada run ficam em `results/<run-id>/`. Para comparar curvas, rode `tensorboard --logdir results` a partir da raiz do repositório.
+- Em máquinas mais lentas, `--num-envs 2` deu um ganho de cerca de 1,7x nas nossas medições.
+- Os resultados de cada run ficam em `results/<run-id>/`. Para comparar curvas, abra um segundo terminal, ative o ambiente virtual e rode `tensorboard --logdir results` a partir da raiz do repositório; o TensorBoard abre em http://localhost:6006.
 - No Módulo 3, para testar uma segunda mudança, use um novo nome (`--run-id=ppo3`, `ppo4`) em vez de `--force`, para não apagar o `ppo2`.
 
 ## Estrutura do repositório
