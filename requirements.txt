@@ -1,0 +1,5 @@
+# Pilha Python do tutorial para Windows e Linux x86_64.
+# Para macOS em Apple Silicon (arm64), não use este arquivo: siga os desvios da seção 3.3 de docs/00-instalacao.md.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.1
+mlagents==1.1.0
