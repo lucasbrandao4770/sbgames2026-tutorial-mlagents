@@ -1,7 +1,7 @@
 # Configuração de treinamento do FlappyAgent combinando PPO com Aprendizado por Imitação (IL): Clonagem Comportamental (BC) e GAIL.
-# Run 2 de 3 do TCC (2024): recompensa extrínseca forte (strength 1.0, igual ao PPO puro) e imitação moderada (behavioral_cloning e gail com strength 0.4 cada), usando a demonstração Leve2FlappyAgentDemo.demo.
+# Run 2 de 3 do TCC (2024): recompensa extrínseca forte (strength 1.0, dez vezes o 0.1 do FlappyBird_ppo.yaml do Módulo 1) e imitação moderada (behavioral_cloning e gail com strength 0.4 cada), usando a demonstração Leve2FlappyAgentDemo.demo.
 # Leve2FlappyAgentDemo.demo é a grafia original do arquivo de demonstração; foi mantida porque este yaml e o run3 referenciam esse nome exato.
-# Compare com run1 (extrínseco fraco, imitação forte) e run3 (mesmo extrínseco, imitação bem fraca); os três usam max_steps igual ao run de PPO puro do Módulo 1, para as curvas ficarem comparáveis no TensorBoard.
+# No TCC, este run partiu do modelo final do run1 (opção --initialize-from), numa versão do jogo com canos em altura aleatória e colisões que ainda não matam. Rodado sozinho, ele treina do zero e não reproduz a curva de results/reference/FlappyBird_il_run2.
 behaviors:
   FlappyAgent:
     # PPO é o algoritmo de base deste treino; os blocos de behavioral_cloning e reward_signals.gail abaixo se somam a ele, não o substituem.
@@ -34,7 +34,7 @@ behaviors:
     checkpoint_interval: 10000
 
     reward_signals:
-      # Recompensa extrínseca: a do próprio jogo, AddReward(+1) ao passar o vão de um cano e AddReward(-1) ao colidir com cano ou parede; strength 1.0 pesa esse sinal tanto quanto o PPO puro do Módulo 1.
+      # Recompensa extrínseca: a do próprio jogo, AddReward(1.0f) ao passar o vão de um cano e AddReward(-1.0f) ao colidir com cano ou parede; strength 1.0 usa essa recompensa com peso cheio, dez vezes o peso do FlappyBird_ppo.yaml do Módulo 1 (0.1).
       extrinsic:
         strength: 1.0
         gamma: 0.99

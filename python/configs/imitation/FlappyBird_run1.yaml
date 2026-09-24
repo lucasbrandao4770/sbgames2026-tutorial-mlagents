@@ -1,6 +1,7 @@
 # Configuração de treinamento do FlappyAgent combinando PPO com Aprendizado por Imitação (IL): Clonagem Comportamental (BC) e GAIL.
-# Run 1 de 3 do TCC (2024): recompensa extrínseca fraca (strength 0.1) e imitação forte (behavioral_cloning strength 1.0, gail strength 0.5), usando a demonstração Level1FlappyAgentDemo.demo.
-# Compare com run2 (extrínseco forte, imitação moderada) e run3 (extrínseco forte, imitação bem fraca); os três usam max_steps igual ao run de PPO puro do Módulo 1, para as curvas ficarem comparáveis no TensorBoard.
+# Run 1 de 3 do TCC (2024): recompensa extrínseca fraca (strength 0.1, o mesmo peso do FlappyBird_ppo.yaml do Módulo 1) e imitação forte (behavioral_cloning strength 1.0, gail strength 0.5).
+# No TCC, run1, run2 e run3 foram etapas encadeadas de um currículo: o run2 partiu do modelo final do run1 e o run3 do modelo final do run2 (opção --initialize-from), cada etapa numa versão mais difícil do jogo. Rodado sozinho, como no Módulo 2, este yaml treina do zero contra o build do tutorial.
+# Este repositório traz as duas demonstrações gravadas para o TCC, em Demos/; este yaml usa Demos/Level1FlappyAgentDemo.demo.
 behaviors:
   FlappyAgent:
     # PPO é o algoritmo de base deste treino; os blocos de behavioral_cloning e reward_signals.gail abaixo se somam a ele, não o substituem.
