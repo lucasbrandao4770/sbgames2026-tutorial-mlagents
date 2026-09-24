@@ -1,0 +1,65 @@
+{
+    "FlappyAgent": {
+        "checkpoints": [
+            {
+                "steps": 19800,
+                "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-19800.onnx",
+                "reward": null,
+                "creation_time": 1733676250.4096277,
+                "auxillary_file_paths": [
+                    "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-19800.pt"
+                ]
+            },
+            {
+                "steps": 29800,
+                "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-29800.onnx",
+                "reward": 19.0,
+                "creation_time": 1733676327.3509352,
+                "auxillary_file_paths": [
+                    "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-29800.pt"
+                ]
+            },
+            {
+                "steps": 39800,
+                "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-39800.onnx",
+                "reward": null,
+                "creation_time": 1733676405.6924267,
+                "auxillary_file_paths": [
+                    "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-39800.pt"
+                ]
+            },
+            {
+                "steps": 49800,
+                "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-49800.onnx",
+                "reward": null,
+                "creation_time": 1733676483.7221851,
+                "auxillary_file_paths": [
+                    "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-49800.pt"
+                ]
+            },
+            {
+                "steps": 50200,
+                "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-50200.onnx",
+                "reward": 8.0,
+                "creation_time": 1733676485.2706163,
+                "auxillary_file_paths": [
+                    "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-50200.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 50200,
+            "file_path": "results\\FlappyAgent_ImitationLearning\\FlappyAgent.onnx",
+            "reward": 8.0,
+            "creation_time": 1733676485.2706163,
+            "auxillary_file_paths": [
+                "results\\FlappyAgent_ImitationLearning\\FlappyAgent\\FlappyAgent-50200.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.2+cu121"
+    }
+}

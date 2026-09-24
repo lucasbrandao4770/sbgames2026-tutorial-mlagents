@@ -438,7 +438,8 @@ http-client.private.env.json
 
 # ---- Project-specific ----
 # mlagents-learn default output directory when run from the repo root.
-/results/
+/results/*
+!/results/reference/
 # mlagents-learn output when run from python/.
 /python/results/
 # Generated ML-Agents telemetry, written under any Unity project folder.
