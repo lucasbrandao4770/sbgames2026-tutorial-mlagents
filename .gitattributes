@@ -1,0 +1,20 @@
+# Normalize text files to LF on every OS (Windows lab machines and macOS open the same Unity project)
+* text=auto eol=lf
+
+# Unity text-serialized YAML assets: LF, and merges routed through UnityYAMLMerge when the driver is configured
+*.unity  merge=unityyamlmerge eol=lf
+*.prefab merge=unityyamlmerge eol=lf
+*.mat    merge=unityyamlmerge eol=lf
+*.asset  merge=unityyamlmerge eol=lf
+*.meta   merge=unityyamlmerge eol=lf
+*.anim   merge=unityyamlmerge eol=lf
+*.controller merge=unityyamlmerge eol=lf
+
+# Binary assets. Git LFS is not needed at this repository size (about 1.5 MB); revisit if textures, audio or larger models arrive
+*.onnx binary
+*.demo binary
+*.png binary
+*.jpg binary
+*.wav binary
+*.mp3 binary
+*.fbx binary
