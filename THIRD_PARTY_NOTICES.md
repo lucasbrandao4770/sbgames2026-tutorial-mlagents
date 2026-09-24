@@ -240,4 +240,11 @@ This project consumes `com.unity.ml-agents` 4.1.0, `com.unity.ai.inference` 2.6.
 
 ## 4. FlappyBird sprites and sounds
 
-The original thesis project used a sprite sheet and three sound files obtained from spriters-resource.com and sounds-resource.com. Those files are assets of the original Flappy Bird game by .GEARS Studios. They are NOT included in this repository. Until replacement assets are added, the FlappyBird scene in this project renders without sprites and without sound.
+The following files under `unity/SBGamesMLAgents/Assets/FlappyBird/` are art and sound clips from the original Flappy Bird game by .GEARS Studios, obtained from the sources credited in the header of `Scripts/Game/FlappyScript.cs`: the sprite sheet from `http://www.spriters-resource.com/mobile_phone/flappybird/sheet/59537/` and the sound clips from `https://www.sounds-resource.com/mobile/flappybird/sound/5309/`.
+
+- `Sprites/sprites.png`
+- `Sounds/death.mp3`
+- `Sounds/fly.mp3`
+- `Sounds/scored.mp3`
+
+They belong to their original authors and are included in this repository only for educational use in this tutorial. They are NOT covered by the MIT licence of this repository.
