@@ -1,0 +1,65 @@
+{
+    "FlappyAgent": {
+        "checkpoints": [
+            {
+                "steps": 19871,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-19871.onnx",
+                "reward": 0.26666666666666666,
+                "creation_time": 1790245849.589622,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-19871.pt"
+                ]
+            },
+            {
+                "steps": 29891,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-29891.onnx",
+                "reward": 2.0,
+                "creation_time": 1790245870.5431418,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-29891.pt"
+                ]
+            },
+            {
+                "steps": 39981,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-39981.onnx",
+                "reward": 2.5,
+                "creation_time": 1790245890.442558,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-39981.pt"
+                ]
+            },
+            {
+                "steps": 49961,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-49961.onnx",
+                "reward": 3.6666666666666665,
+                "creation_time": 1790245911.0406358,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-49961.pt"
+                ]
+            },
+            {
+                "steps": 50144,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-50144.onnx",
+                "reward": 3.75,
+                "creation_time": 1790245911.055187,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-50144.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 50144,
+            "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent.onnx",
+            "reward": 3.75,
+            "creation_time": 1790245911.055187,
+            "auxillary_file_paths": [
+                "/Users/lucas/workspace/ventures/sbgames/local_files/spike/results/build_test/FlappyAgent/FlappyAgent-50144.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.1"
+    }
+}
