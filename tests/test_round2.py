@@ -1035,6 +1035,8 @@ def test_r8_reserved_names_are_refused_in_any_letter_case(
     assert harness.started == []
     assert len(boxes.shown) == 1, boxes.shown
     assert "reservado" in boxes.shown[0][1], boxes.shown[0][1]
+    # G2-T-1: a refused start must give Iniciar back, or the student is stuck.
+    assert harness.gui.start_button.instate(["!disabled"]), "Iniciar stayed disabled"
 
 
 def test_r8_iniciar_with_an_empty_name_says_the_name_is_missing(
@@ -1050,3 +1052,5 @@ def test_r8_iniciar_with_an_empty_name_says_the_name_is_missing(
     assert harness.started == []
     assert len(boxes.shown) == 1, boxes.shown
     assert _says_name_missing(boxes.shown[0][1]), f"message: {boxes.shown[0][1]!r}"
+    # G2-T-1: a refused start must give Iniciar back, or the student is stuck.
+    assert harness.gui.start_button.instate(["!disabled"]), "Iniciar stayed disabled"

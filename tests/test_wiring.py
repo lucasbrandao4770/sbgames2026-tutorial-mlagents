@@ -367,6 +367,8 @@ def test_g1t2_real_conflict_dialog_buttons_launch_the_chosen_run(
         assert returned == [expected_choice]
         if action is None:
             assert not process.running, "Cancelar must not launch anything"
+            # G2-T-1: a refused start must give Iniciar back, or the student is stuck.
+            assert gui.start_button.instate(["!disabled"]), "Iniciar stayed disabled"
             return
         assert process.running
         run_ids = [arg for arg in process.args if arg.startswith("--run-id=")]

@@ -234,6 +234,8 @@ def test_h4_force_stop_uses_create_no_window_and_logs_taskkill_result(
         gui.on_force_stop()
         assert run_calls, "taskkill was never invoked"
         _args, kwargs = run_calls[-1]
+        # G2-T-2: without /T the game that the trainer started survives the forced stop.
+        assert _args[:4] == ["taskkill", "/F", "/T", "/PID"], _args
         assert kwargs.get("creationflags") == 0x08000000, kwargs
         assert "25" in _log_text(gui), _log_text(gui)
     finally:
