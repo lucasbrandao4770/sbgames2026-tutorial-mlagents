@@ -1880,6 +1880,9 @@ class CentralDeTreinoApp:
             and self._process.graceful_timeout_elapsed()
         ):
             self.force_button.state(["!disabled"])
+            # R6 (G1-P-2): say so, or the button turns on in silence under "Parando...".
+            what = "O treino" if self._mode == "treinar" else "A exibição"
+            self.status_var.set(f"{what} ainda não parou. Se precisar, clique em Forçar parada.")
 
     def on_force_stop(self) -> None:
         """Kill the process tree immediately; the final model may not be saved."""

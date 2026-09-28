@@ -846,9 +846,6 @@ def test_r5_treinar_list_offers_the_three_module_configs_in_module_order(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="G1-P-2: Forçar parada is enabled with the status still 'Parando...'"
-)
 def test_r6_a_slow_stop_points_to_forcar_parada_when_it_becomes_available(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
