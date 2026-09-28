@@ -125,6 +125,31 @@ def test_h2_pending_close_survives_watch_config_write_failure(
         gui.container.destroy()
 
 
+def test_g2a_p3_pending_close_survives_a_results_folder_that_cannot_be_listed(
+    tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G2a-P-3: an OSError while results/ is listed (a run folder that Windows reports
+    as access denied) must not escape the refresh either: the log area says what failed
+    and a pending close still happens, as for H2."""
+    repo = _repo_with_trained_run(tmp_path)
+    gui = app.CentralDeTreinoApp(tk_root, repo_root=repo, python_bin=Path(sys.executable))
+    try:
+
+        def _refuse(_repo_root: Path) -> list[app.TrainedRun]:
+            raise PermissionError("simulated access denied on results/old_run")
+
+        monkeypatch.setattr(app, "find_trained_runs", _refuse)
+        closed: list[bool] = []
+        gui._close_now = lambda: closed.append(True)
+        gui._process = _FinishedStub()  # type: ignore[assignment]
+        gui._closing = True
+        gui._finish_process()
+        assert closed == [True], "a pending close did not happen after the listing failed"
+        assert "erro" in _log_text(gui).lower(), _log_text(gui)
+    finally:
+        gui.container.destroy()
+
+
 # ----------------------------------------------------------------------------
 # H3 (priority 3): a stop that fails on Windows must say why.
 # ----------------------------------------------------------------------------

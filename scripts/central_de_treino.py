@@ -1372,7 +1372,13 @@ class CentralDeTreinoApp:
         show the pre-training (empty) list until the app was restarted.
         """
         current = prefer or self.watch_run_var.get()
-        runs = find_trained_runs(self.repo_root)
+        try:
+            runs = find_trained_runs(self.repo_root)
+        except OSError as exc:
+            # G2a-P-3: like H2 below, a folder that cannot be listed (Windows' access
+            # denied) must not escape: in _finish_process it would skip a pending close.
+            self._append_log(f"Erro ao ler a pasta results/: {exc}")
+            runs = []
         self._runs_by_label = {run.relative_id: run for run in runs}
         self._run_combo["values"] = list(self._runs_by_label.keys())
         for run in runs:
