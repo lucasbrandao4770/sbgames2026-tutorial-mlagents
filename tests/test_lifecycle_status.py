@@ -514,21 +514,7 @@ def test_m2_force_stop_timer_cancelled_when_run_ends_and_next_launches(
 
 
 @pytest.mark.parametrize(
-    "ending",
-    [
-        "parar_without_time_limit",
-        pytest.param(
-            "parar_with_time_limit",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "m2: Parar in a watch that has a time limit ends with the time-limit "
-                    "status (time_limit_stopped ignores who stopped it)"
-                ),
-            ),
-        ),
-        "time_limit",
-    ],
+    "ending", ["parar_without_time_limit", "parar_with_time_limit", "time_limit"]
 )
 def test_m2_watch_status_not_restored_after_stop(
     ending: str, tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -1058,6 +1058,7 @@ class CentralDeTreinoApp:
         self._watch_connected: bool = False
         self._watch_deadline: float | None = None
         self._stop_requested: bool = False
+        self._stopped_by_time_limit: bool = False
         self._launched_at: float = 0.0
         self._closing: bool = False
         self._run_name_is_custom: bool = False
@@ -1594,6 +1595,7 @@ class CentralDeTreinoApp:
         self._watch_connected = False
         self._watch_deadline = None
         self._stop_requested = False
+        self._stopped_by_time_limit = False
         self._launched_at = time.time()
         if self._force_stop_job is not None:
             # M2: a timer left over from a *previous* run (nobody clicked Forçar
@@ -1685,7 +1687,9 @@ class CentralDeTreinoApp:
             returncode = 0
         mode = self._mode
         run_name = self._run_name
-        time_limit_stopped = self._stop_requested and self._watch_deadline is not None
+        # m2: only the time limit itself counts, not a Parar pressed by the user in a
+        # watch that merely had a time limit set.
+        time_limit_stopped = self._stopped_by_time_limit
         self._process = None
         self._mode = None
         self._set_running_state(False)
@@ -1740,6 +1744,7 @@ class CentralDeTreinoApp:
         self._watch_time_limit_job = None
         if self._process is not None and self._mode == "assistir":
             self._stop_requested = True
+            self._stopped_by_time_limit = True
             self.status_var.set("Tempo limite atingido, parando...")
             self.on_stop()
 
