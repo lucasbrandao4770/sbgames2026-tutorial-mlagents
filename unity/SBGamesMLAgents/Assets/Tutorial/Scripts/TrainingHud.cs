@@ -1,5 +1,7 @@
 ﻿using System.Globalization;
+using System.IO;
 using Unity.MLAgents;
+using Unity.MLAgents.Policies;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
@@ -31,6 +33,9 @@ public class TrainingHud : MonoBehaviour
     const float ButtonHeight = 30f;
     const float FooterHeight = 22f;
     const float TooltipWidth = 260f;
+    const float ModelLabelWidth = 80f;
+    const float ResultsLabelWidth = 60f;
+    const float VersionWidth = 60f;
 
     const float DefaultUiScale = 1.6f;
     const float MinUiScale = 1f;
@@ -56,6 +61,11 @@ public class TrainingHud : MonoBehaviour
     const string SignedFormat = "+0.00;-0.00;0.00";
     const string NoData = "...";
     const string SoundTooltip = "Liga ou desliga os sons do jogo. Durante o treino, o som fica sempre desligado.";
+    const float ResultsRefreshInterval = 2f;
+    const string FooterHintText = "H esconde, M som, -/+ zoom";
+    const string HiddenHintText = "H mostra o painel";
+    const float HiddenHintDuration = 8f;
+    const string TensorBoardUrl = "http://localhost:6006";
 
     static readonly Color PanelColor = new Color(0f, 0f, 0f, 0.7f);
     static readonly Color TooltipColor = new Color(0.05f, 0.05f, 0.05f, 0.95f);
@@ -94,38 +104,55 @@ public class TrainingHud : MonoBehaviour
 
     readonly GUIContent smallerLabel = new GUIContent("A-", "Diminui o painel");
     readonly GUIContent largerLabel = new GUIContent("A+", "Aumenta o painel");
-    readonly GUIContent connectedLabel = new GUIContent("Treinador conectado (?)",
-        "Um treinador está conectado e controla o agente.");
-    readonly GUIContent inferenceLabel = new GUIContent("Inferência (sem treinador) (?)",
+    readonly GUIContent connectedLabel = new GUIContent("Treinador conectado",
+        "O mlagents-learn está conectado e decide as ações do agente. Se estiver treinando, cada decisão também ajuda o agente a aprender.");
+    readonly GUIContent inferenceLabel = new GUIContent("Inferência (sem treinador)",
         "Nenhum treinador conectado. O agente só usa o modelo que já foi treinado e não aprende nada novo.");
-    readonly GUIContent decisionStepsLabel = new GUIContent("Passos (?)",
-        "Decisões tomadas pelo agente neste processo. Com um ambiente só, é o mesmo número que o treinador mostra como Step.");
-    readonly GUIContent simulationStepsLabel = new GUIContent("Passos (?)",
+    readonly GUIContent decisionStepsLabel = new GUIContent("Passos",
+        "Decisões tomadas pelo agente desta janela desde que o jogo abriu. Com um só ambiente e sem --resume, é o mesmo número que o treinador mostra como Step.");
+    readonly GUIContent simulationStepsLabel = new GUIContent("Passos",
         "Passos da simulação desde que o jogo abriu.");
-    readonly GUIContent episodesLabel = new GUIContent("Episódios (?)",
+    readonly GUIContent episodesLabel = new GUIContent("Episódios",
         "Episódios que já terminaram desde que o jogo abriu. Um episódio acaba quando o agente morre, alcança o objetivo ou atinge o limite de passos.");
-    readonly GUIContent scoreLabel = new GUIContent("Pontuação (?)",
+    readonly GUIContent scoreLabel = new GUIContent("Pontuação",
         "Canos que o pássaro ultrapassou nesta vida. É o mesmo placar que aparece no jogo.");
-    readonly GUIContent bestScoreLabel = new GUIContent("Melhor pontuação (?)",
+    readonly GUIContent bestScoreLabel = new GUIContent("Melhor pontuação",
         "A maior pontuação de uma vida desde que o jogo abriu.");
-    readonly GUIContent rewardLabel = new GUIContent("Recompensa do episódio (?)",
+    readonly GUIContent modelLabel = new GUIContent("Modelo",
+        "Arquivo .onnx que escolhe as ações quando não há treinador. Com o treinador conectado, as ações vêm do Python.");
+    readonly GUIContent rewardLabel = new GUIContent("Recompensa do episódio",
         "Soma das recompensas deste episódio até agora. É esse número que o treino tenta aumentar.");
-    readonly GUIContent meanLabel = new GUIContent("Média (últimos 20) (?)",
-        "Média da recompensa final dos últimos 20 episódios. Se ela sobe com o tempo, o agente está aprendendo.");
-    readonly GUIContent tensorBoardLabel = new GUIContent("Recompensas: veja o TensorBoard (?)",
+    readonly GUIContent meanLabel = new GUIContent("Média (últimos 20)",
+        "Média da recompensa final dos últimos 20 episódios. Num treino, se ela sobe com o tempo, o agente está aprendendo.");
+    readonly GUIContent tensorBoardLabel = new GUIContent("Recompensas: veja o TensorBoard",
         "Este agente encerra os próprios episódios, então o painel não vê a recompensa final de cada um. As curvas de recompensa estão no TensorBoard.");
-    readonly GUIContent chartLabel = new GUIContent("Últimos 50 episódios (?)",
+    readonly GUIContent chartLabel = new GUIContent("Últimos 50 episódios",
         "Cada barra é a recompensa final de um episódio, do mais antigo (esquerda) ao mais novo (direita). Para cima é positiva, para baixo é negativa.");
-    readonly GUIContent speedLabel = new GUIContent("Velocidade (?)",
-        "20x é o padrão do treino. Em 1x você vê o jogo em tempo real, mas o treino fica 20 vezes mais lento.");
-    readonly GUIContent speed1Label = new GUIContent("1x", "Tempo real, bom para assistir.");
-    readonly GUIContent speed5Label = new GUIContent("5x", "Cinco vezes mais rápido que o tempo real.");
+    readonly GUIContent speedLabel = new GUIContent("Velocidade",
+        "20x é o padrão do treino. Em 1x fica fácil acompanhar o pássaro, mas o treino avança bem mais devagar.");
+    readonly GUIContent speed1Label = new GUIContent("1x", "A menor velocidade, boa para assistir. Sem treinador, é o tempo real.");
+    readonly GUIContent speed5Label = new GUIContent("5x", "Cinco vezes a velocidade de 1x.");
     readonly GUIContent speed20Label = new GUIContent("20x", "Velocidade padrão do treino.");
-    readonly GUIContent soundLabel = new GUIContent("Som (?)", SoundTooltip);
+    readonly GUIContent soundLabel = new GUIContent("Som", SoundTooltip);
     readonly GUIContent soundOffLabel = new GUIContent("desligado", SoundTooltip);
     readonly GUIContent soundOnLabel = new GUIContent("ligado", SoundTooltip);
     readonly GUIContent soundTrainingLabel = new GUIContent("desligado (treino)", SoundTooltip);
+    readonly GUIContent resultsFolderLabel = new GUIContent("Pasta",
+        "Com o treinador conectado, é a pasta desta execução. Sem treinador, é a execução mais recente dentro de results.");
+    readonly GUIContent resultsCheckpointLabel = new GUIContent("Salvo",
+        "O arquivo .onnx mais recente nesta pasta. O treinador grava um a cada checkpoint_interval passos, valor definido no .yaml."
+        + " No fim de um treino, mesmo interrompido com Ctrl+C, grava também o modelo final.");
+    readonly GUIContent tensorBoardButtonLabel = new GUIContent("TensorBoard",
+        "Abre " + TensorBoardUrl + " no navegador. Antes, rode tensorboard --logdir results em outro terminal, na raiz do repositório.");
+    // Text set in Awake: Application.version is unsafe to read from a field initializer.
+    readonly GUIContent versionLabel = new GUIContent();
+    readonly GUIContent hiddenHintLabel = new GUIContent(HiddenHintText);
     readonly GUIContent tooltipContent = new GUIContent();
+    // Mutable value cells, updated only when their cached, ellipsized text changes (see CachedEllipsis).
+    readonly GUIContent modelValueContent = new GUIContent();
+    readonly GUIContent resultsFolderValueContent = new GUIContent();
+    readonly GUIContent resultsCheckpointValueContent = new GUIContent();
+    readonly GUIContent footerHintContent = new GUIContent();
 
     readonly CachedText stepsText = new CachedText("N0");
     readonly CachedText episodesText = new CachedText("N0");
@@ -134,6 +161,12 @@ public class TrainingHud : MonoBehaviour
     readonly CachedText rewardText = new CachedText(SignedFormat);
     readonly CachedText meanText = new CachedText(SignedFormat);
     readonly CachedText speedText = new CachedText("0.#'x'");
+
+    // Ellipsized on demand from OnGUI, since measuring text needs a GUIStyle.
+    readonly CachedEllipsis modelValueCache = new CachedEllipsis();
+    readonly CachedEllipsis resultsFolderCache = new CachedEllipsis();
+    readonly CachedEllipsis resultsCheckpointCache = new CachedEllipsis();
+    readonly CachedEllipsis footerHintCache = new CachedEllipsis();
 
     // Ring buffer with the final reward of the last ChartSize episodes.
     readonly float[] rewards = new float[ChartSize];
@@ -154,6 +187,12 @@ public class TrainingHud : MonoBehaviour
     // Set once the tracked agent ends its own episodes, whose final reward the panel cannot see.
     bool rewardsUnknown;
 
+    // Refreshed together with decisionPeriod whenever TrackAgent finds a (new) agent.
+    bool hasModel;
+    string modelName = "";
+    string modelDisplayRaw = "";
+    BehaviorType behaviorType = BehaviorType.Default;
+
     bool hasScore;
     int score;
     int bestScore;
@@ -167,7 +206,22 @@ public class TrainingHud : MonoBehaviour
     bool headless;
     bool connected;
     float nextRefresh;
+    // Real time the panel was last hidden; DrawHiddenHint stops drawing HiddenHintDuration after this.
+    float hiddenAt;
+
+    // Results folder scan: throttled separately because it touches disk, unlike the other cached text.
+    float nextResultsRefresh;
+    bool hasResultsFolder;
+    string resultsFolderRaw = "";
+    string resultsFolderFullPath = "";
+    string resultsCheckpointRaw = "";
+    string resultsCheckpointTooltip = "";
+    bool loggedResultsError;
+
     Rect panelScreenRect;
+    // Cached from the last OnGUI call: true when a larger UiScale would not grow the rendered panel (either
+    // the window height is already the limit, or UiScale is at MaxUiScale). Read by the "=" key in Update.
+    bool uiScaleAtCeiling;
     NumberFormatInfo numberFormat;
     Texture2D whiteTexture;
     GUIStyle labelStyle;
@@ -191,6 +245,8 @@ public class TrainingHud : MonoBehaviour
     public void ToggleVisible()
     {
         Visible = !Visible;
+        if (!Visible)
+            hiddenAt = Time.realtimeSinceStartup;
         nextRefresh = 0f;
     }
 
@@ -241,6 +297,8 @@ public class TrainingHud : MonoBehaviour
         Instance = this;
         useGUILayout = false;
         headless = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null;
+        // Application.version is unsafe to read from a field initializer, so it is set here instead.
+        versionLabel.text = "v" + Application.version;
 
         // OnGUI never draws without a graphics device, so the texture is only needed with one.
         if (!headless)
@@ -296,9 +354,9 @@ public class TrainingHud : MonoBehaviour
                 ToggleVisible();
             if (keyboard.mKey.wasPressedThisFrame)
                 SetSound(!SoundOn);
-            if (keyboard.minusKey.wasPressedThisFrame)
+            if (keyboard.minusKey.wasPressedThisFrame || keyboard.numpadMinusKey.wasPressedThisFrame)
                 SetUiScale(UiScale - UiScaleStep);
-            if (keyboard.equalsKey.wasPressedThisFrame)
+            if ((keyboard.equalsKey.wasPressedThisFrame || keyboard.numpadPlusKey.wasPressedThisFrame) && Visible && !uiScaleAtCeiling)
                 SetUiScale(UiScale + UiScaleStep);
         }
 
@@ -329,6 +387,12 @@ public class TrainingHud : MonoBehaviour
         {
             nextRefresh = Time.realtimeSinceStartup + RefreshInterval;
             RefreshTexts();
+        }
+        // Slower and separate from RefreshTexts because this one touches disk.
+        if (Visible && !headless && Time.realtimeSinceStartup >= nextResultsRefresh)
+        {
+            nextResultsRefresh = Time.realtimeSinceStartup + ResultsRefreshInterval;
+            RefreshResultsInfo();
         }
     }
 
@@ -419,6 +483,12 @@ public class TrainingHud : MonoBehaviour
             lastAgentStep = agent.StepCount;
             var requester = agent.GetComponent<DecisionRequester>();
             decisionPeriod = requester != null ? Mathf.Max(1, requester.DecisionPeriod) : 0;
+
+            var behaviorParameters = agent.GetComponent<BehaviorParameters>();
+            UnityEngine.Object model = behaviorParameters != null ? behaviorParameters.Model : null;
+            hasModel = model != null;
+            modelName = hasModel ? model.name : "";
+            behaviorType = behaviorParameters != null ? behaviorParameters.BehaviorType : BehaviorType.Default;
         }
 
         int completed = agent.CompletedEpisodes;
@@ -459,6 +529,147 @@ public class TrainingHud : MonoBehaviour
         currentReward = 0f;
     }
 
+    // Finds the current run folder and its newest checkpoint. Prefers the folder mlagents-learn itself is
+    // writing to (from this process's own log path), which is correct even with --results-dir; otherwise
+    // falls back to the newest subfolder of <cwd>/results. Read-only, and every exception is caught so a
+    // permissions or IO problem just hides the rows instead of throwing.
+    void RefreshResultsInfo()
+    {
+        try
+        {
+            bool trainerConnected = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn;
+            string runFolder = trainerConnected ? RunFolderFromLogPath() : null;
+            bool viaLogPath = runFolder != null;
+
+            if (!viaLogPath)
+            {
+                string resultsRoot = Path.Combine(Directory.GetCurrentDirectory(), "results");
+                if (!Directory.Exists(resultsRoot))
+                {
+                    hasResultsFolder = false;
+                    return;
+                }
+                runFolder = NewestSubfolder(resultsRoot);
+                if (runFolder == null)
+                {
+                    // results exists but no run has written a folder into it yet; a transient startup window.
+                    hasResultsFolder = true;
+                    resultsFolderFullPath = resultsRoot;
+                    resultsFolderRaw = "nenhuma execução ainda";
+                    resultsCheckpointRaw = "nada salvo ainda";
+                    resultsCheckpointTooltip = "O treinador ainda não criou uma pasta de execução em " + resultsRoot + ".";
+                    loggedResultsError = false;
+                    return;
+                }
+            }
+
+            hasResultsFolder = true;
+            resultsFolderFullPath = runFolder;
+            // Shown with forward slashes on every OS; only this display string changes, never a path used for IO.
+            resultsFolderRaw = (viaLogPath
+                ? Path.Combine(Path.GetFileName(Path.GetDirectoryName(runFolder)), Path.GetFileName(runFolder))
+                : Path.Combine("results", Path.GetFileName(runFolder))).Replace('\\', '/');
+
+            string checkpoint = NewestOnnxFile(runFolder, out System.DateTime checkpointTime);
+            if (checkpoint == null)
+            {
+                resultsCheckpointRaw = "nada salvo ainda";
+                resultsCheckpointTooltip = "";
+            }
+            else
+            {
+                var age = System.DateTime.UtcNow - checkpointTime;
+                resultsCheckpointRaw = FormatCheckpointValue(checkpoint, age, numberFormat);
+                resultsCheckpointTooltip = checkpoint;
+            }
+            loggedResultsError = false;
+        }
+        catch (System.Exception e)
+        {
+            hasResultsFolder = false;
+            if (!loggedResultsError)
+            {
+                loggedResultsError = true;
+                Debug.Log("TrainingHud: results info hidden after a file system error (" + e.GetType().Name + ")");
+            }
+        }
+    }
+
+    // The run folder mlagents-learn is writing to, parsed from this process's own log file path
+    // (-logFile <run-folder>/run_logs/Player-N.log). Trusted regardless of where it sits, since
+    // --results-dir can point it outside <cwd>/results. Null when the shape does not match.
+    string RunFolderFromLogPath()
+    {
+        string logPath = Application.consoleLogPath;
+        if (string.IsNullOrEmpty(logPath))
+            return null;
+        string runLogsDir = Path.GetDirectoryName(logPath);
+        if (string.IsNullOrEmpty(runLogsDir) || Path.GetFileName(runLogsDir) != "run_logs")
+            return null;
+        string runDir = Path.GetDirectoryName(runLogsDir);
+        return string.IsNullOrEmpty(runDir) ? null : runDir;
+    }
+
+    // The subfolder of root whose own last-write time (set when a run starts and writes its first files
+    // directly inside it) is newest. A cheap proxy for "which run was touched most recently."
+    string NewestSubfolder(string root)
+    {
+        string newest = null;
+        System.DateTime newestTime = System.DateTime.MinValue;
+        foreach (string dir in Directory.GetDirectories(root))
+        {
+            System.DateTime time = Directory.GetLastWriteTimeUtc(dir);
+            if (newest == null || time > newestTime)
+            {
+                newest = dir;
+                newestTime = time;
+            }
+        }
+        return newest;
+    }
+
+    // The most recently written .onnx anywhere under runFolder: a numbered checkpoint or the final model.
+    // Returns its write time too, so the caller never has to stat the file again after it may be gone.
+    string NewestOnnxFile(string runFolder, out System.DateTime time)
+    {
+        string newest = null;
+        System.DateTime newestTime = System.DateTime.MinValue;
+        foreach (string file in Directory.GetFiles(runFolder, "*.onnx", SearchOption.AllDirectories))
+        {
+            System.DateTime fileTime = File.GetLastWriteTimeUtc(file);
+            if (newest == null || fileTime > newestTime)
+            {
+                newest = file;
+                newestTime = fileTime;
+            }
+        }
+        time = newestTime;
+        return newest;
+    }
+
+    static string FormatAge(System.TimeSpan age)
+    {
+        // Truncated, not rounded, so this never reads "há 60 s" or "há 60 min".
+        double seconds = System.Math.Max(0, age.TotalSeconds);
+        if (seconds < 60)
+            return "há " + (int)seconds + " s";
+        if (seconds < 3600)
+            return "há " + (int)(seconds / 60) + " min";
+        return "há " + (int)(seconds / 3600) + " h";
+    }
+
+    // Age first, since it is what matters and must never be the part an ellipsis cuts; the step number (or
+    // "modelo final" when the file has none, e.g. the run's final <Behavior>.onnx) comes after in parens.
+    static string FormatCheckpointValue(string checkpointPath, System.TimeSpan age, NumberFormatInfo numberFormat)
+    {
+        string ageText = FormatAge(age);
+        string name = Path.GetFileNameWithoutExtension(checkpointPath);
+        int dash = name.LastIndexOf('-');
+        if (dash >= 0 && dash < name.Length - 1 && long.TryParse(name.Substring(dash + 1), out long steps))
+            return ageText + " (passo " + steps.ToString("N0", numberFormat) + ")";
+        return ageText + " (modelo final)";
+    }
+
     void RefreshTexts()
     {
         connected = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn;
@@ -469,21 +680,41 @@ public class TrainingHud : MonoBehaviour
         rewardText.Set(currentReward, numberFormat);
         meanText.Set(MeanLast20, numberFormat);
         speedText.Set(Time.timeScale, numberFormat);
+        modelDisplayRaw = ComputeModelDisplay();
+    }
+
+    // HeuristicOnly and InferenceOnly override the trainer/model default, matching ml-agents itself: a
+    // heuristic-only agent never takes actions from a model or trainer, and an inference-only one never
+    // takes them from a trainer even when one is connected.
+    string ComputeModelDisplay()
+    {
+        if (behaviorType == BehaviorType.HeuristicOnly)
+            return "nenhum (controle manual)";
+        if (behaviorType == BehaviorType.InferenceOnly)
+            return hasModel ? modelName : "nenhum (controle manual)";
+        return connected ? "controlado pelo treinador" : hasModel ? modelName : "nenhum (controle manual)";
     }
 
     // Height of the panel in layout units; must match the rows drawn in OnGUI.
     float PanelHeight()
     {
-        int statRows = 2 + (hasScore ? 2 : 0) + (rewardsUnknown ? 1 : 2);
+        int statRows = 2 + (hasScore ? 2 : 0) + 1 + (rewardsUnknown ? 1 : 2);
         float chart = rewardsUnknown ? 0f : RowHeight + ChartHeight + Gap;
+        float resultsHeight = hasResultsFolder ? 2f * RowHeight + Gap : 0f;
         return 2f * Padding + TitleHeight + RowHeight + Gap + statRows * RowHeight + Gap + chart
-            + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap + FooterHeight;
+            + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap + resultsHeight + ButtonHeight + Gap + FooterHeight;
     }
 
     void OnGUI()
     {
-        if (!Visible || headless)
+        if (headless)
             return;
+        if (!Visible)
+        {
+            if (Time.realtimeSinceStartup - hiddenAt < HiddenHintDuration)
+                DrawHiddenHint();
+            return;
+        }
 
         // Controls set GUI.tooltip while they are hovered in this Repaint pass, and DrawTooltip reads it at
         // the end of the same pass; clear the previous pass's value first so it cannot stick.
@@ -496,7 +727,12 @@ public class TrainingHud : MonoBehaviour
         float panelHeight = PanelHeight();
         float screenHeight = Mathf.Max(Screen.height, 1);
         // The user's multiplier never lets the panel grow past the screen height.
-        float scale = Mathf.Min(screenHeight / ReferenceHeight * UiScale, screenHeight / (panelHeight + 2f * PanelY));
+        float uiScaleTerm = screenHeight / ReferenceHeight * UiScale;
+        float windowFitTerm = screenHeight / (panelHeight + 2f * PanelY);
+        float scale = Mathf.Min(uiScaleTerm, windowFitTerm);
+        // A+ (and "=") are disabled once one more step would grow the rendered panel by less than half a step.
+        uiScaleAtCeiling = UiScale >= MaxUiScale
+            || windowFitTerm < screenHeight / ReferenceHeight * (UiScale + 0.5f * UiScaleStep);
         GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
         panelScreenRect = new Rect(PanelX * scale, PanelY * scale, PanelWidth * scale, panelHeight * scale);
 
@@ -510,8 +746,11 @@ public class TrainingHud : MonoBehaviour
         float sizeButtonY = y + (TitleHeight - SizeButtonHeight) * 0.5f;
         if (GUI.Button(new Rect(sizeButtonsX, sizeButtonY, SizeButtonWidth, SizeButtonHeight), smallerLabel, buttonStyle))
             SetUiScale(UiScale - UiScaleStep);
+        bool largerWasEnabled = GUI.enabled;
+        GUI.enabled = largerWasEnabled && !uiScaleAtCeiling;
         if (GUI.Button(new Rect(sizeButtonsX + SizeButtonWidth + Gap, sizeButtonY, SizeButtonWidth, SizeButtonHeight), largerLabel, buttonStyle))
             SetUiScale(UiScale + UiScaleStep);
+        GUI.enabled = largerWasEnabled;
         y += TitleHeight;
 
         Fill(new Rect(x, y + (RowHeight - 10f) * 0.5f, 10f, 10f), connected ? PositiveColor : InferenceColor);
@@ -525,6 +764,7 @@ public class TrainingHud : MonoBehaviour
             y = DrawRow(x, y, width, scoreLabel, scoreText.Text);
             y = DrawRow(x, y, width, bestScoreLabel, bestScoreText.Text);
         }
+        y = DrawModelRow(x, y, width);
         if (rewardsUnknown)
         {
             GUI.Label(new Rect(x, y, width, RowHeight), tensorBoardLabel, labelStyle);
@@ -567,7 +807,23 @@ public class TrainingHud : MonoBehaviour
         GUI.enabled = wasEnabled;
         y += ButtonHeight + Gap;
 
-        GUI.Label(new Rect(x, y, width, FooterHeight), "H mostra ou esconde o painel", footerStyle);
+        if (hasResultsFolder)
+        {
+            y = DrawResultsRows(x, y, width);
+            y += Gap;
+        }
+        if (GUI.Button(new Rect(x, y, width, ButtonHeight), tensorBoardButtonLabel, buttonStyle))
+        {
+            Application.OpenURL(TensorBoardUrl);
+            Debug.Log("TrainingHud: opening " + TensorBoardUrl);
+        }
+        y += ButtonHeight + Gap;
+
+        float hintWidth = width - VersionWidth;
+        if (footerHintCache.Set(FooterHintText, footerStyle, hintWidth))
+            footerHintContent.text = footerHintCache.Text;
+        GUI.Label(new Rect(x, y, hintWidth, FooterHeight), footerHintContent, footerStyle);
+        GUI.Label(new Rect(x + hintWidth, y, VersionWidth, FooterHeight), versionLabel, footerStyle);
 
         DrawTooltip(scale);
         GUI.matrix = previousMatrix;
@@ -578,6 +834,45 @@ public class TrainingHud : MonoBehaviour
     {
         GUI.Label(new Rect(x, y, width - ValueWidth, RowHeight), label, labelStyle);
         GUI.Label(new Rect(x + width - ValueWidth, y, ValueWidth, RowHeight), value, valueStyle);
+        return y + RowHeight;
+    }
+
+    // Wider value column than DrawRow's, since the model name or trainer state does not fit in ValueWidth.
+    float DrawModelRow(float x, float y, float width)
+    {
+        float valueWidth = width - ModelLabelWidth;
+        GUI.Label(new Rect(x, y, ModelLabelWidth, RowHeight), modelLabel, labelStyle);
+        if (modelValueCache.Set(modelDisplayRaw, valueStyle, valueWidth))
+        {
+            modelValueContent.text = modelValueCache.Text;
+            modelValueContent.tooltip = modelValueCache.WasTruncated ? modelDisplayRaw : "";
+        }
+        GUI.Label(new Rect(x + ModelLabelWidth, y, valueWidth, RowHeight), modelValueContent, valueStyle);
+        return y + RowHeight;
+    }
+
+    // The current run's folder and its newest checkpoint, same two-column layout as DrawModelRow. Called
+    // only while hasResultsFolder.
+    float DrawResultsRows(float x, float y, float width)
+    {
+        float valueWidth = width - ResultsLabelWidth;
+
+        GUI.Label(new Rect(x, y, ResultsLabelWidth, RowHeight), resultsFolderLabel, labelStyle);
+        if (resultsFolderCache.Set(resultsFolderRaw, valueStyle, valueWidth))
+        {
+            resultsFolderValueContent.text = resultsFolderCache.Text;
+            resultsFolderValueContent.tooltip = resultsFolderFullPath;
+        }
+        GUI.Label(new Rect(x + ResultsLabelWidth, y, valueWidth, RowHeight), resultsFolderValueContent, valueStyle);
+        y += RowHeight;
+
+        GUI.Label(new Rect(x, y, ResultsLabelWidth, RowHeight), resultsCheckpointLabel, labelStyle);
+        if (resultsCheckpointCache.Set(resultsCheckpointRaw, valueStyle, valueWidth))
+        {
+            resultsCheckpointValueContent.text = resultsCheckpointCache.Text;
+            resultsCheckpointValueContent.tooltip = resultsCheckpointTooltip;
+        }
+        GUI.Label(new Rect(x + ResultsLabelWidth, y, valueWidth, RowHeight), resultsCheckpointValueContent, valueStyle);
         return y + RowHeight;
     }
 
@@ -621,6 +916,20 @@ public class TrainingHud : MonoBehaviour
         var box = new Rect(left, top, TooltipWidth, height);
         Fill(box, TooltipColor);
         GUI.Label(box, tooltipContent, tooltipStyle);
+    }
+
+    // Only line drawn while the panel is hidden, so H is discoverable again. No tooltip: it says everything.
+    void DrawHiddenHint()
+    {
+        EnsureStyles();
+        Matrix4x4 previousMatrix = GUI.matrix;
+        float scale = Mathf.Max(Screen.height, 1) / ReferenceHeight * UiScale;
+        GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+        var rect = new Rect(PanelX, PanelY, 180f, FooterHeight);
+        Fill(rect, PanelColor);
+        var textRect = new Rect(PanelX + Padding, PanelY, 180f - Padding, FooterHeight);
+        GUI.Label(textRect, hiddenHintLabel, footerStyle);
+        GUI.matrix = previousMatrix;
     }
 
     void Fill(Rect area, Color color)
@@ -678,6 +987,47 @@ public class TrainingHud : MonoBehaviour
                 return;
             value = newValue;
             Text = newValue.ToString(format, numberFormat);
+        }
+    }
+
+    // Ellipsizes text to fit maxWidth under a GUIStyle, recomputed only when the source string changes so
+    // repeated Repaint passes do not remeasure or allocate. Set returns true exactly when Text changed, so
+    // callers know when to copy it into their own displayed GUIContent. Measures with its own reusable
+    // GUIContent, since GUIContent.Temp is internal to UnityEngine and not callable from user code.
+    sealed class CachedEllipsis
+    {
+        readonly GUIContent measure = new GUIContent();
+        string source = "";
+
+        public string Text { get; private set; } = "";
+        public bool WasTruncated { get; private set; }
+
+        public bool Set(string newValue, GUIStyle style, float maxWidth)
+        {
+            newValue = newValue ?? "";
+            if (newValue == source)
+                return false;
+            source = newValue;
+            measure.text = newValue;
+            if (newValue.Length == 0 || style.CalcSize(measure).x <= maxWidth)
+            {
+                Text = newValue;
+                WasTruncated = false;
+                return true;
+            }
+            int lo = 0, hi = newValue.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                measure.text = newValue.Substring(0, mid) + "…";
+                if (style.CalcSize(measure).x <= maxWidth)
+                    lo = mid;
+                else
+                    hi = mid - 1;
+            }
+            Text = (lo > 0 ? newValue.Substring(0, lo) : "") + "…";
+            WasTruncated = true;
+            return true;
         }
     }
 }
