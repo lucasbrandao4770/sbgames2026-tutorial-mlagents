@@ -33,32 +33,45 @@ def _make_run(repo: Path, name: str) -> None:
     (repo / "results" / name).mkdir()
 
 
-def test_suggestion_after_ppo1_skips_the_module_3_name(repo: Path) -> None:
+def test_suggestion_after_ppo1_is_ppo1_plus_a_letter(repo: Path) -> None:
+    """G1-U-4: ppo1 is followed by ppo1b, which the slides' filter ppo1|ppo2 still matches."""
     app = _load_app()
     _make_run(repo, "ppo1")
-    assert app.next_available_run_name(repo, "ppo1") == "ppo3"
+    assert app.next_available_run_name(repo, "ppo1") == "ppo1b"
 
 
-def test_suggestion_after_il1_skips_the_other_imitation_runs(repo: Path) -> None:
+def test_suggestion_after_il1_is_il1_plus_a_letter(repo: Path) -> None:
+    """G1-U-4: il1 is followed by il1b, never by il2 or il3, the other imitation runs."""
     app = _load_app()
     _make_run(repo, "il1")
-    assert app.next_available_run_name(repo, "il1") == "il4"
+    assert app.next_available_run_name(repo, "il1") == "il1b"
 
 
 def test_suggestion_skips_names_that_already_exist(repo: Path) -> None:
+    """G1-U-4: the letters go on past every name already in results/."""
     app = _load_app()
-    for name in ("ppo1", "ppo3", "ppo4"):
+    for name in ("ppo1", "ppo1b", "ppo1c"):
         _make_run(repo, name)
-    assert app.next_available_run_name(repo, "ppo1") == "ppo5"
+    assert app.next_available_run_name(repo, "ppo1") == "ppo1d"
+
+
+def test_suggestion_for_a_lettered_name_goes_on_from_its_base(repo: Path) -> None:
+    """G1-U-4: a conflict on ppo1b suggests ppo1c, not ppo1bb."""
+    app = _load_app()
+    for name in ("ppo1", "ppo1b"):
+        _make_run(repo, name)
+    assert app.next_available_run_name(repo, "ppo1b") == "ppo1c"
 
 
 def test_suggestion_for_a_name_without_digits(repo: Path) -> None:
+    """G1-U-4: a name of the attendee's own gets a letter too."""
     app = _load_app()
     _make_run(repo, "meu_treino")
-    assert app.next_available_run_name(repo, "meu_treino") == "meu_treino2"
+    assert app.next_available_run_name(repo, "meu_treino") == "meu_treinob"
 
 
 def test_suggestion_is_never_a_default_name_of_the_tutorial(repo: Path) -> None:
+    """G1-U-4: no suggestion is a run name the tutorial gives to its own steps."""
     app = _load_app()
     reserved = {name for name, _ in app.DOC_DEFAULT_RUN_SETTINGS.values()} | set(
         app.RESERVED_RUN_NAMES

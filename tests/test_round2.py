@@ -711,11 +711,6 @@ def test_r2_a_name_typed_after_choosing_the_config_stays_until_the_config_change
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-U-4: says 'treino salvo' for a folder without a model, offers Continuar, "
-    "and its first choice renames",
-)
 def test_r3_conflict_without_a_saved_model_says_so_and_restarts_first(
     make_app: Callable[[Path], Harness], conflict_dialogs: ConflictDialogs, tmp_path: Path
 ) -> None:
@@ -738,10 +733,6 @@ def test_r3_conflict_without_a_saved_model_says_so_and_restarts_first(
     assert "--force" in launched.args or not launched.run_folder_existed, launched.args
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-U-4: next_available_run_name suggests ppo3/il4, not the name plus a letter",
-)
 @pytest.mark.parametrize(
     ("config", "existing", "expected"),
     [

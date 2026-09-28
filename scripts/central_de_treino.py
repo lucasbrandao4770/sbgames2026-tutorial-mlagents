@@ -272,22 +272,34 @@ def default_run_settings_for_config(config_path: Path) -> tuple[str, bool]:
 
 
 def next_available_run_name(repo_root: Path, run_name: str) -> str:
-    """Return the first "<base><N>" (N starting at 2) that is free and not reserved.
+    """Return the name plus the first free letter: ppo1 -> ppo1b, then ppo1c.
 
     Used to suggest a safe alternative in the run-name conflict dialog, so
     accepting it can never collide with (and therefore never risks damaging) an
-    existing run. Names the tutorial gives to its own steps are skipped too:
-    ppo1 -> ppo3, never ppo2, which is the name of the Module 3 run.
+    existing run. G1-U-4: the suggestion keeps the whole name, so the slides'
+    TensorBoard filter (ppo1|ppo2) still matches it, and it is never a name the
+    tutorial gives to its own steps. A name that already ends in such a letter
+    (ppo1b) goes on from its base (ppo1c), not ppo1bb.
     """
     reserved = {name for name, _show_window in DOC_DEFAULT_RUN_SETTINGS.values()}
     reserved.update(RESERVED_RUN_NAMES)
-    base = re.sub(r"\d+$", "", run_name) or run_name
+    lettered = re.fullmatch(r"(.*\d)[b-z]", run_name)
+    base = lettered.group(1) if lettered else run_name
+    for letter in "bcdefghijklmnopqrstuvwxyz":
+        candidate = f"{base}{letter}"
+        if not run_exists(repo_root, candidate) and candidate not in reserved:
+            return candidate
+    # All 25 letters taken: numbered names, which no tutorial name looks like.
     n = 2
-    candidate = f"{base}{n}"
-    while run_exists(repo_root, candidate) or candidate in reserved:
+    while run_exists(repo_root, f"{base}_{n}"):
         n += 1
-        candidate = f"{base}{n}"
-    return candidate
+    return f"{base}_{n}"
+
+
+def run_has_saved_model(repo_root: Path, run_name: str) -> bool:
+    """True when results/<run_name> holds a model: any .onnx or checkpoint.pt (G1-U-4)."""
+    run_dir = repo_root / "results" / run_name
+    return any(run_dir.rglob("*.onnx")) or any(run_dir.rglob("checkpoint.pt"))
 
 
 def find_build(repo_root: Path, *, system: str | None = None) -> Path | None:
@@ -1594,13 +1606,23 @@ class CentralDeTreinoApp:
         from a completely different module than the one currently selected.
         Returns (action, run_name) with action one of "rename"/"resume"/"force",
         or None if cancelled.
+
+        G1-U-4: a folder without a model (a first try that failed at start) says
+        so, offers no Continuar, and puts Recomeçar under the same name first.
         """
         next_free = next_available_run_name(self.repo_root, run_name)
+        has_model = run_has_saved_model(self.repo_root, run_name)
         dialog = tk.Toplevel(self.root)
         dialog.title("Treino já existe")
         dialog.transient(self.root)
         dialog.resizable(False, False)
-        message = f'Já existe um treino salvo com o nome "{run_name}".\nO que você quer fazer?'
+        if has_model:
+            message = f'Já existe um treino salvo com o nome "{run_name}".\nO que você quer fazer?'
+        else:
+            message = (
+                f'Já existe um treino com o nome "{run_name}", mas ele não salvou nenhum '
+                "modelo.\nO que você quer fazer?"
+            )
         ttk.Label(dialog, text=message, justify="left", padding=12).pack()
 
         result: dict[str, tuple[str, str] | None] = {"choice": None}
@@ -1609,23 +1631,20 @@ class CentralDeTreinoApp:
             result["choice"] = value
             dialog.destroy()
 
+        rename = (f"Usar outro nome ({next_free})", ("rename", next_free))
+        resume = (
+            f'Continuar o treino "{run_name}" com esta configuração',
+            ("resume", run_name),
+        )
+        force = ("Recomeçar (apaga o anterior)", ("force", run_name))
+        choices = [rename, resume, force] if has_model else [force, rename]
+
         button_frame = ttk.Frame(dialog, padding=(12, 0, 12, 12))
         button_frame.pack(fill="x")
-        ttk.Button(
-            button_frame,
-            text=f"Usar outro nome ({next_free})",
-            command=lambda: choose(("rename", next_free)),
-        ).pack(fill="x", pady=2)
-        ttk.Button(
-            button_frame,
-            text=f'Continuar o treino "{run_name}" com esta configuração',
-            command=lambda: choose(("resume", run_name)),
-        ).pack(fill="x", pady=2)
-        ttk.Button(
-            button_frame,
-            text="Recomeçar (apaga o anterior)",
-            command=lambda: choose(("force", run_name)),
-        ).pack(fill="x", pady=2)
+        for text, value in choices:
+            ttk.Button(button_frame, text=text, command=lambda value=value: choose(value)).pack(
+                fill="x", pady=2
+            )
         ttk.Button(button_frame, text="Cancelar", command=lambda: choose(None)).pack(
             fill="x", pady=2
         )
