@@ -4,7 +4,7 @@ This document lists third-party content bundled in this repository and the licen
 
 ## 1. Author's own work
 
-The following paths are the author's (Lucas Brandao's) own work: `unity/SBGamesMLAgents/Assets/Basic`, `unity/SBGamesMLAgents/Assets/FlappyBird`, the project documentation, and the scripts and configuration files in this repository outside the third-party paths listed in this document. Their licence terms are stated in the repository's LICENSE file(s). This document does not name that licence; the choice of licence is still pending.
+The following paths are the author's (Lucas Brandao's) own work, under this repository's MIT licence (`LICENSE`): `unity/SBGamesMLAgents/Assets/Basic`, with the exceptions below, and the scripts and configuration files in this repository outside the third-party paths listed in this document. The documentation and teaching materials (`README.md` and `docs/`) are under the Creative Commons Attribution 4.0 International licence (`LICENSE-docs`). `unity/SBGamesMLAgents/Assets/FlappyBird` is a mix of third-party and own work; see section 4. The scene `Assets/Basic/Scenes/Basic.unity` was built starting from the ML-Agents example scene `Examples/Basic/Scenes/Basic.unity` (Apache License, Version 2.0, same source as section 2), and the prefab `Assets/Basic/Prefabs/Basic - Lucas.prefab` was made from the `Basic` object of that scene, as the author's 2024 thesis describes. The Basic environment follows the Code Monkey tutorial video `https://www.youtube.com/watch?v=zPFU30tbyKs`, as the thesis also states; its scripts were not compared with the tutorial's own project files.
 
 ## 2. Unity ML-Agents example assets
 
@@ -238,13 +238,20 @@ The Apache License, Version 2.0 full text follows. The `LICENSE.md` file in the 
 
 This project consumes `com.unity.ml-agents` 4.1.0, `com.unity.ai.inference` 2.6.1, and other packages from the Unity package registry under their own licence terms. Nothing from these packages is vendored in this repository; the Unity Package Manager downloads them on first open of the project. `com.unity.nuget.newtonsoft-json` wraps Newtonsoft.Json (MIT licence) and is likewise fetched by the Package Manager, not shipped in this repository.
 
-## 4. FlappyBird sprites and sounds
+## 4. FlappyBird game (`Assets/FlappyBird`)
 
-The following files under `unity/SBGamesMLAgents/Assets/FlappyBird/` are art and sound clips from the original Flappy Bird game by .GEARS Studios, obtained from the sources credited in the header of `Scripts/Game/FlappyScript.cs`: the sprite sheet from `http://www.spriters-resource.com/mobile_phone/flappybird/sheet/59537/` and the sound clips from `https://www.sounds-resource.com/mobile/flappybird/sound/5309/`.
+The FlappyBird game in `unity/SBGamesMLAgents/Assets/FlappyBird/` derives from Dimitris Gkanatsios's "FlappyBirdStyleGame" (`https://github.com/dgkanatsios/FlappyBirdStyleGame`).
 
-- `Sprites/sprites.png`
-- `Sounds/death.mp3`
-- `Sounds/fly.mp3`
-- `Sounds/scored.mp3`
+Unchanged copies of that repository's files: `Animations/flappyAnimation.anim`, `Animations/sprites_58.controller`, `Sprites/sprites.png`, `Sounds/death.mp3`, `Sounds/fly.mp3`, `Sounds/scored.mp3`, the folder metas `Animations.meta`, `Prefabs.meta`, `Scenes.meta`, `Scripts.meta`, `Sounds.meta`, `Sprites.meta`, and the `.meta` file of every upstream file named in this section except `Sprites/sprites.png.meta`.
 
-They belong to their original authors and are included in this repository only for educational use in this tutorial. They are NOT covered by the MIT licence of this repository.
+Modified copies of that repository's files: `Scripts/Game/CameraFollow.cs`, `Scripts/Game/FlappyScript.cs`, `Scripts/Game/FloorMoveScript.cs`, `Scripts/Game/GameState.cs`, `Scripts/Game/PipeDestroyerScript.cs`, `Scripts/Game/RandomBackgroundScript.cs`, `Scripts/Game/ScoreManagerScript.cs`, `Scripts/Game/SpawnerScript.cs`, `Prefabs/PipeColumnPrefab.prefab`, `Prefabs/PipeColumnPrefab2.prefab`, `Scenes/mainGame.unity`, and `Sprites/sprites.png.meta` (same GUID, re-imported by a newer Unity). Three lines of `FloorMoveScript.cs` were contributed upstream by GitHub user `Cosebdd` (pull request #3, merged 2021-10-03).
+
+The author's (Lucas Brandao's) own work: `Scripts/MLAgents/FlappyAgent.cs`, `Demos/Level1FlappyAgentDemo.demo`, `Demos/Leve2FlappyAgentDemo.demo`, `TFModels/FlappyAgentLevel1.onnx`, `TFModels/FlappyAgentLevel2.onnx`, `TFModels/FlappyAgentLevel3.onnx`, their `.meta` files, the folder metas `Demos.meta`, `Scripts/Game.meta`, `Scripts/MLAgents.meta` and `TFModels.meta`, and the ML-Agents additions inside the modified files listed above. `FlappyAgent.cs` follows the Code Monkey tutorial video "AI Learns to play Flappy Bird!" (`https://www.youtube.com/watch?v=fz8D0OZkQGQ`), as the author's 2024 thesis states; it was not compared with that tutorial's project files.
+
+The `dgkanatsios/FlappyBirdStyleGame` repository has no licence file. In its GitHub issue #2, "Licence" (opened 2017-06-28), a user asked for permission to adapt and use the game for educational purposes, and the author replied on 2017-06-28: "Hi @pixele, thanks for reaching out. Of course, feel free to use the code for whatever purpose you wish." (`https://github.com/dgkanatsios/FlappyBirdStyleGame/issues/2`). The upstream author's own files listed above (the scripts, animations, prefabs, scene and `.meta` files) are used under this public statement. The sprite sheet and the sounds are not his work, so the statement does not cover them; see the next two paragraphs. None of the files listed above under that repository is covered by this repository's MIT licence.
+
+`Sprites/sprites.png` is byte identical to The Spriters Resource asset 59894, "Version 1.2 Sprites" (`https://www.spriters-resource.com/mobile/flappybird/sheet/59894/`), not to sheet 59537. The site's Terms of Use (last updated 2025-03-31) state: "Taking content in its original format from this website and distributing it elsewhere without prior consent or credit to its origin will also result in contact being made with those seen fit to have it removed as this is also viewed as theft. Use of the content of this site is not included in this term, as that is the purpose of this resource. Feel free to use the content as you wish (where legally permitted or in unpublished, non-commercial works)." and "Content on these sites may not be used in any commercial works." The header comment inside `Scripts/Game/FlappyScript.cs` cites sheet 59537 instead. That citation comes from the upstream project, which did not update it when the sprite file was added in 2015.
+
+`Sounds/death.mp3`, `Sounds/fly.mp3` and `Sounds/scored.mp3` came with the upstream repository, and their earlier origin is unknown. The audio credit in the header of `Scripts/Game/FlappyScript.cs`, The Sounds Resource page 5309, was added upstream in 2018. That page was submitted in 2015, after the files were first committed in 2014, and its files are not the source of these MP3s.
+
+The third-party files listed in this section belong to their original authors and are included in this repository only for educational use in this tutorial.
