@@ -13,7 +13,6 @@ import signal
 import sys
 import time
 import tkinter as tk
-from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -27,45 +26,12 @@ import central_de_treino as app
 FAKE_TRAINER = Path(__file__).resolve().parent / "fake_trainer.py"
 
 
-@pytest.fixture(autouse=True)
-def no_real_dialogs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
-    """Stub every tkinter.messagebox call so no test ever shows a real window.
-
-    Autouse: applies to every test in this file without opting in. Returns the
-    list of (kind, title, message) calls recorded so far, for a test to assert
-    against; a real messagebox call anywhere is a bug, per the incident where one
-    of these dialogs showed up on screen during a test run and could not be
-    copied from. Custom dialogs (_ask_run_conflict, _show_error_dialog) are not
-    module-level functions, so each test that would reach one overrides it
-    directly on the app instance instead of going through this fixture.
-    """
-    calls: list[tuple[str, str, str]] = []
-
-    def _record(kind: str) -> Callable[..., None]:
-        def _fn(title: str = "", message: str = "", **_kwargs: object) -> None:
-            calls.append((kind, title, message))
-
-        return _fn
-
-    def _yes(title: str = "", message: str = "", **_kwargs: object) -> bool:
-        calls.append(("askyesno", title, message))
-        return True
-
-    monkeypatch.setattr(app.messagebox, "showerror", _record("showerror"))
-    monkeypatch.setattr(app.messagebox, "showwarning", _record("showwarning"))
-    monkeypatch.setattr(app.messagebox, "showinfo", _record("showinfo"))
-    # M5's on_close() confirms via askyesno when something is running; default to
-    # "yes" (proceed) so a test exercising that path does not hang on a real
-    # dialog, matching the incident this fixture exists to prevent. A test that
-    # needs the "no" path overrides this on the app instance, same as
-    # _ask_run_conflict/_show_error_dialog below.
-    monkeypatch.setattr(app.messagebox, "askyesno", _yes)
-    return calls
-
-
 # ----------------------------------------------------------------------------
 # Fixtures e helpers de repositório falso
 # ----------------------------------------------------------------------------
+#
+# no_real_dialogs, repo_root and tk_root now live in tests/conftest.py, so every
+# test file in this directory gets them (no_real_dialogs is autouse there too).
 
 _PPO_CONFIG = (
     "behaviors:\n"
@@ -75,18 +41,6 @@ _PPO_CONFIG = (
     "    hyperparameters:\n"
     "      batch_size: 256\n"
 )
-
-
-@pytest.fixture
-def repo_root(tmp_path: Path) -> Path:
-    """A minimal fake repo: python/configs/ with two configs, an empty results/."""
-    root = tmp_path / "repo"
-    (root / "python" / "configs" / "ppo").mkdir(parents=True)
-    (root / "python" / "configs" / "imitation").mkdir(parents=True)
-    (root / "python" / "configs" / "ppo" / "FlappyBird_ppo.yaml").write_text(_PPO_CONFIG)
-    (root / "python" / "configs" / "imitation" / "FlappyBird_run1.yaml").write_text(_PPO_CONFIG)
-    (root / "results").mkdir()
-    return root
 
 
 def _make_run(
@@ -335,7 +289,10 @@ def test_model_output_paths_and_existing(repo_root: Path) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_build_train_command_base(repo_root: Path) -> None:
+def test_build_train_command_base(repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This test's whole point is the no-base-port shape, so it pins BASE_PORT to
+    # None itself instead of relying on the conftest.py autouse default (5605).
+    monkeypatch.setattr(app, "BASE_PORT", None)
     config = repo_root / "python" / "configs" / "ppo" / "FlappyBird_ppo.yaml"
     build = repo_root / "builds" / "FlappyBird.app"
     args = app.build_train_command(
@@ -401,7 +358,9 @@ def test_build_train_command_invalid_name_raises(repo_root: Path) -> None:
         )
 
 
-def test_build_watch_command(repo_root: Path) -> None:
+def test_build_watch_command(repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same as test_build_train_command_base: pin the no-base-port shape explicitly.
+    monkeypatch.setattr(app, "BASE_PORT", None)
     watch_config = repo_root / "results" / ".central_de_treino" / "assistir_config.yaml"
     build = repo_root / "builds" / "FlappyBird.app"
     args = app.build_watch_command(
@@ -424,8 +383,15 @@ def test_build_watch_command(repo_root: Path) -> None:
     ]
 
 
-def test_build_commands_omit_base_port_by_default(repo_root: Path) -> None:
-    assert app.BASE_PORT is None  # CENTRAL_DE_TREINO_BASE_PORT is not set in this test env
+def test_build_commands_omit_base_port_by_default(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # m25: asserting app.BASE_PORT is None used to fail whenever the owner had
+    # CENTRAL_DE_TREINO_BASE_PORT exported in his shell (BASE_PORT is read once at
+    # import time); setting it here, like conftest.py's own autouse default does,
+    # makes the test control its own precondition instead of trusting the
+    # environment.
+    monkeypatch.setattr(app, "BASE_PORT", None)
     config = repo_root / "python" / "configs" / "ppo" / "FlappyBird_ppo.yaml"
     build = repo_root / "builds" / "FlappyBird.app"
     train_args = app.build_train_command(
@@ -701,8 +667,13 @@ def test_managed_process_graceful_stop_exits_cleanly(tmp_path: Path) -> None:
             lines.extend(process.poll_output())
             time.sleep(0.02)
         assert process.is_running() is False
+        # Flaky before this fix: exit_code is only set by the reader thread after
+        # it observes EOF and calls wait(), which can lag is_running() turning
+        # False by a beat (ManagedProcess.returncode's own docstring measures
+        # this at ~7%, reproduced live here). finish_reading() joins that thread
+        # (bounded) first, the same guard _finish_process itself relies on.
+        lines.extend(process.finish_reading())
         assert process.exit_code == 0
-        lines.extend(process.poll_output())
         assert any("Interrompido" in line for line in lines)
     finally:
         process.force_kill()
@@ -733,8 +704,9 @@ def test_managed_process_graceful_stop_survives_parent_sigint_ignored(tmp_path: 
             lines.extend(process.poll_output())
             time.sleep(0.02)
         assert process.is_running() is False
+        # Same race as test_managed_process_graceful_stop_exits_cleanly above.
+        lines.extend(process.finish_reading())
         assert process.exit_code == 0
-        lines.extend(process.poll_output())
         assert any("Interrompido" in line for line in lines)
     finally:
         signal.signal(signal.SIGINT, original_handler)
@@ -784,23 +756,6 @@ def test_managed_process_force_kill_stops_hung_process(tmp_path: Path) -> None:
 # Janela headless: cria o app de verdade, mexe nas opções, chama os handlers,
 # bombeia o loop com update(). Sem automação de GUI no nível do SO.
 # ----------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def tk_root() -> Iterator[tk.Tk]:
-    # One Tk() for the whole module, reused by every test below, exactly like the
-    # real app: main() creates exactly one root for its whole life. Creating and
-    # destroying a *second* tk.Tk() in the same process was observed to break
-    # Aqua Tk's after()/event processing for it on macOS (update() blocks
-    # indefinitely) - a test-harness pitfall, not a production one, since
-    # production never creates a second root. Each test below builds its own
-    # CentralDeTreinoApp on this shared root and destroys gui.container - not
-    # the root - at the end.
-    app.ensure_tcl_tk_discoverable()
-    root = tk.Tk()
-    root.withdraw()
-    yield root
-    root.destroy()
 
 
 def _fake_venv(tmp_path: Path) -> Path:
@@ -871,9 +826,24 @@ def test_app_run_name_validator_blocks_invalid_characters(tk_root: tk.Tk, tmp_pa
         gui.container.destroy()
 
 
-def test_app_copy_command_sets_clipboard(tk_root: tk.Tk, tmp_path: Path) -> None:
+def test_app_copy_command_sets_clipboard(
+    tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo_root = _full_repo(tmp_path)
     gui = app.CentralDeTreinoApp(tk_root, repo_root=repo_root, python_bin=_fake_venv(tmp_path))
+    # m25/conftest.py's clipboard-guard: on_copy_command must be proven for real,
+    # so this test stubs the root's own clipboard_clear/append/get with a tiny
+    # in-memory stand-in instead of touching the owner's real system clipboard.
+    # An instance-level override like this shadows conftest.py's class-level
+    # guard patch, which is exactly the seam that guard's docstring describes.
+    fake_clipboard = {"text": ""}
+    monkeypatch.setattr(tk_root, "clipboard_clear", lambda: fake_clipboard.update(text=""))
+    monkeypatch.setattr(
+        tk_root,
+        "clipboard_append",
+        lambda value: fake_clipboard.update(text=fake_clipboard["text"] + value),
+    )
+    monkeypatch.setattr(tk_root, "clipboard_get", lambda: fake_clipboard["text"])
     try:
         tk_root.update()
         gui.on_copy_command()
@@ -941,7 +911,11 @@ def test_app_start_stop_end_to_end_with_fake_trainer(tk_root: tk.Tk, tmp_path: P
             time.sleep(0.02)
         assert gui._process is None
         assert "disabled" not in gui.start_button.state()
-        assert "encerrado" in gui.status_var.get().lower()
+        # m25: "encerrado" alone also matches "Treino encerrado. Modelo salvo
+        # em ...", so it passed whether or not a model was actually saved. The
+        # fake trainer never writes a .onnx, so a graceful stop here has one
+        # exact, unambiguous outcome: no model saved, no error.
+        assert gui.status_var.get() == "Treino encerrado."
     finally:
         if gui._process is not None:
             gui._process.force_kill()
