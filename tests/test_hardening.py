@@ -130,14 +130,6 @@ def test_h2_pending_close_survives_watch_config_write_failure(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H3: _windows_send_ctrl_c (central_de_treino.py:760-773) calls "
-        "subprocess.run(...) without capturing its CompletedProcess, so the helper's "
-        "returncode/stderr never reach on_stop() (:1746-1758) or the log area."
-    ),
-)
 def test_h3_stop_logs_windows_helper_result(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -164,14 +156,6 @@ def test_h3_stop_logs_windows_helper_result(
         gui.container.destroy()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H3: _windows_send_ctrl_c's subprocess.run(..., timeout=10) has no try/except, "
-        "so a subprocess.TimeoutExpired escapes ManagedProcess.request_graceful_stop() "
-        "(central_de_treino.py:869-877) and on_stop() (:1746-1758) uncaught."
-    ),
-)
 def test_h3_stop_survives_helper_timeout(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -203,14 +187,6 @@ def test_h3_stop_survives_helper_timeout(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H4: _windows_force_kill (central_de_treino.py:776-778) calls taskkill without "
-        "creationflags=CREATE_NO_WINDOW (a console flashes) and discards the "
-        "CompletedProcess, so its return code never reaches the log area."
-    ),
-)
 def test_h4_force_stop_uses_create_no_window_and_logs_taskkill_result(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

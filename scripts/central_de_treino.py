@@ -792,25 +792,56 @@ kernel32.GenerateConsoleCtrlEvent(0, 0)
 """
 
 
-def _windows_send_ctrl_c(pid: int) -> None:
+def _windows_send_ctrl_c(pid: int) -> str:
     """Deliver Ctrl+C to a trainer running in its own hidden console.
 
     Sequence: FreeConsole, AttachConsole(pid), SetConsoleCtrlHandler(None, True) so
     the helper ignores the event it is about to raise, then
     GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0). Untested in this sandbox; see
     windows_checklist.md.
+
+    Returns a line for the log area (H3): the helper's return code, and its stderr
+    when not empty, are the only trace of which link failed when a stop does not
+    work. A helper stuck past its 10 s timeout is reported the same way, not raised.
     """
-    subprocess.run(
-        [sys.executable, "-c", _WINDOWS_CTRL_C_HELPER_SRC, str(pid)],
+    advice = "Se o treino não parar, use Forçar parada quando o botão for liberado."
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _WINDOWS_CTRL_C_HELPER_SRC, str(pid)],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"O envio do Ctrl+C ao treinador passou do tempo limite de 10 s. {advice}"
+    if result.returncode == 0:
+        report = "Ctrl+C enviado ao treinador (código de retorno 0)."
+    else:
+        report = (
+            f"O Ctrl+C não chegou ao treinador (código de retorno {result.returncode}). {advice}"
+        )
+    stderr = (result.stderr or "").strip()
+    if stderr:
+        report += f" Detalhe: {stderr}"
+    return report
+
+
+def _windows_force_kill(pid: int) -> str:
+    """Kill the trainer's entire process tree via taskkill. Untested in this sandbox.
+
+    H4: CREATE_NO_WINDOW keeps taskkill, a console program started from a GUI
+    process, from flashing a console window. Returns a line for the log area
+    with its return code.
+    """
+    result = subprocess.run(
+        ["taskkill", "/F", "/T", "/PID", str(pid)],
         capture_output=True,
-        timeout=10,
         check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
-
-
-def _windows_force_kill(pid: int) -> None:
-    """Kill the trainer's entire process tree via taskkill. Untested in this sandbox."""
-    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, check=False)
+    return f"Parada forçada: o taskkill terminou com código {result.returncode}."
 
 
 class ManagedProcess:
@@ -901,15 +932,19 @@ class ManagedProcess:
             self._reader_thread.join(timeout)
         return self.poll_output()
 
-    def request_graceful_stop(self) -> None:
-        """Ask the child to stop the way a terminal Ctrl+C would."""
+    def request_graceful_stop(self) -> str | None:
+        """Ask the child to stop the way a terminal Ctrl+C would.
+
+        Returns a line for the log area on Windows (H3: the Ctrl+C helper's
+        result), or None.
+        """
         if self._proc is None:
-            return
+            return None
         self._graceful_stop_requested_at = time.monotonic()
         if self.system == "Windows":
-            _windows_send_ctrl_c(self._proc.pid)
-        else:
-            _posix_graceful_stop(self._proc)
+            return _windows_send_ctrl_c(self._proc.pid)
+        _posix_graceful_stop(self._proc)
+        return None
 
     def graceful_timeout_elapsed(self) -> bool:
         """True once graceful_timeout_s has passed since request_graceful_stop()."""
@@ -917,14 +952,18 @@ class ManagedProcess:
             return False
         return (time.monotonic() - self._graceful_stop_requested_at) >= self.graceful_timeout_s
 
-    def force_kill(self) -> None:
-        """Kill the whole process tree. The final model of this run may be lost."""
+    def force_kill(self) -> str | None:
+        """Kill the whole process tree. The final model of this run may be lost.
+
+        Returns a line for the log area on Windows (H4: taskkill's return code),
+        or None.
+        """
         if self._proc is None:
-            return
+            return None
         if self.system == "Windows":
-            _windows_force_kill(self._proc.pid)
-        else:
-            _posix_force_kill(self._proc)
+            return _windows_force_kill(self._proc.pid)
+        _posix_force_kill(self._proc)
+        return None
 
 
 def start_tensorboard(
@@ -1793,7 +1832,9 @@ class CentralDeTreinoApp:
             return
         self._stop_requested = True
         self.status_var.set("Parando...")
-        self._process.request_graceful_stop()
+        report = self._process.request_graceful_stop()
+        if report is not None:
+            self._append_log(report)  # H3: the Windows Ctrl+C helper's result
         self.stop_button.state(["disabled"])
         if self._force_stop_job is not None:
             self.root.after_cancel(self._force_stop_job)
@@ -1818,7 +1859,9 @@ class CentralDeTreinoApp:
         """Kill the process tree immediately; the final model may not be saved."""
         if self._process is None:
             return
-        self._process.force_kill()
+        report = self._process.force_kill()
+        if report is not None:
+            self._append_log(report)  # H4: taskkill's return code
         self.force_button.state(["disabled"])
         messagebox.showwarning(
             "Central de treino",
