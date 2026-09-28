@@ -633,6 +633,56 @@ def test_r1_time_limit_during_a_stop_sends_no_second_request_nor_rearms_the_forc
     assert gui.force_button.instate(["!disabled"]), "Forçar parada not offered 30 s after Parar"
 
 
+def test_g2a_p4_sim_after_the_run_ended_by_itself_closes_at_once_and_leaves_no_mark(
+    make_app: Callable[[Path], Harness],
+    boxes: MessageBoxes,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """G2a-P-4: the training ends by itself while "Parar e fechar?" is open: Sim closes
+    the window at once, sends no stop, and leaves no closing mark that would close the
+    window when the next run ends."""
+    harness = make_app(_make_repo(tmp_path))
+    gui = harness.gui
+    gui.on_start()
+    harness.clock.advance(1_000)
+
+    def _run_ends_while_asking(title: str = "", message: str = "", **_kwargs: object) -> bool:
+        boxes.asked.append(f"askyesno: {message}")
+        harness.end_processes()  # the poll sees the end while the question is open
+        return True
+
+    monkeypatch.setattr(app.messagebox, "askyesno", _run_ends_while_asking)
+
+    gui.on_close()
+
+    assert len(boxes.asked) == 1, boxes.asked
+    assert harness.destroy_calls == [[]], "Sim did not close the window at once"
+    assert [p.stop_requests for p in harness.started] == [0]
+    harness.destroy_calls.clear()  # this harness records destroy() and keeps the root
+    gui.on_start()
+    harness.clock.advance(1_000)
+    harness.end_processes()
+    assert harness.destroy_calls == [], "the next run's end closed the window by itself"
+
+
+def test_g2a_p4_a_stale_closing_mark_does_not_survive_into_a_new_run(
+    make_app: Callable[[Path], Harness], tmp_path: Path
+) -> None:
+    """G2a-P-4: a closing mark left over from an earlier run, whatever left it, is
+    cleared when a new run starts, so that run's end does not close the window."""
+    harness = make_app(_make_repo(tmp_path))
+    gui = harness.gui
+    gui._closing = True
+
+    gui.on_start()
+    harness.clock.advance(1_000)
+    harness.end_processes()
+
+    assert len(harness.started) == 1
+    assert harness.destroy_calls == [], "a stale closing mark closed the window"
+
+
 # ----------------------------------------------------------------------------
 # R2: the module defaults come back on a config change (G1-P-5, G1-U-3)
 # ----------------------------------------------------------------------------

@@ -1711,6 +1711,7 @@ class CentralDeTreinoApp:
         self._watch_deadline = None
         self._stop_requested = False
         self._stopped_by_time_limit = False
+        self._closing = False  # G2a-P-4: a close asked for an earlier run is not for this one
         self._launched_at = time.time()
         if self._force_stop_job is not None:
             # M2: a timer left over from a *previous* run (nobody clicked Forçar
@@ -2144,6 +2145,10 @@ class CentralDeTreinoApp:
             if not messagebox.askyesno(
                 "Central de treino", "Um treino está rodando. Parar e fechar?"
             ):
+                return
+            if self._process is None or not self._process.is_running():
+                # G2a-P-4: the run ended by itself while the question was open.
+                self._close_now()
                 return
             self._closing = True
             self.on_stop()
