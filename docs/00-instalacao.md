@@ -23,7 +23,7 @@ Escolha um caminho antes de instalar. Nas seções de Windows e macOS, os passos
 | PyTorch | 2.2.1, versão para CPU | Obrigatório | Obrigatório |
 | mlagents (inclui mlagents-envs) | 1.1.0 | Obrigatório | Obrigatório |
 | Git, ou download do ZIP | - | Obrigatório | Obrigatório |
-| Build do FlappyBird (Windows ou macOS) | Release v0.9.0 do repositório | Recomendado, treina mais rápido que o Editor | Obrigatório |
+| Build do FlappyBird (Windows ou macOS) | Release v0.9.2 do repositório | Recomendado, treina mais rápido que o Editor | Obrigatório |
 
 O pacote `com.unity.ml-agents` vem declarado no projeto Unity do tutorial. O Unity baixa esse pacote sozinho na primeira abertura do projeto. Você instala só o Editor.
 
@@ -164,7 +164,7 @@ mlagents-learn --help
 
 Se as duas checagens passarem, a parte Python está pronta. No Caminho A, confira também se o projeto abre no Editor, como nas subseções 2.5 e 3.5.
 
-No Caminho B, teste também o build antes do dia, a partir da raiz do repositório, com o comando do Módulo 1 do README (seção Como treinar) e `--run-id=teste`; pare com `Ctrl+C` quando aparecer o primeiro resumo de passos. No macOS, se o sistema bloquear o FlappyBird por ser de um desenvolvedor não identificado, rode `xattr -dr com.apple.quarantine builds/FlappyBird.app` e repita. No macOS 15, o clique com o botão direito seguido de "Abrir" pode não aparecer como alternativa; nesse caso, deixe a primeira tentativa ser bloqueada e depois vá em Ajustes do Sistema, Privacidade e Segurança, e use "Abrir Mesmo Assim". No Windows, se o SmartScreen bloquear o executável, clique em "Mais informações" e depois em "Executar assim mesmo"; se o firewall perguntar sobre o Python na primeira vez que o `mlagents-learn` rodar, permita em redes privadas, porque o treino conversa só com a própria máquina.
+No Caminho B, teste também o build antes do dia, a partir da raiz do repositório, com o comando do Módulo 1 do README (seção Como treinar) e `--run-id=teste`; pare com `Ctrl+C` quando aparecer o primeiro resumo de passos. Assim que o jogo abre, aparece um painel de treino no canto superior esquerdo, descrito em [docs/01-primeiro-agente.md](01-primeiro-agente.md#o-painel-de-treino). A janela abre com 1024x576 e pode ser redimensionada. Durante o treino, não clique na área do jogo nem aperte a barra de espaço: o pássaro bate as asas fora do controle do treinador. Cliques no painel não mexem no pássaro. No macOS, se o sistema bloquear o FlappyBird por ser de um desenvolvedor não identificado, rode `xattr -dr com.apple.quarantine builds/FlappyBird.app` e repita. No macOS 15, o clique com o botão direito seguido de "Abrir" pode não aparecer como alternativa; nesse caso, deixe a primeira tentativa ser bloqueada e depois vá em Ajustes do Sistema, Privacidade e Segurança, e use "Abrir Mesmo Assim". No Windows, se o SmartScreen bloquear o executável, clique em "Mais informações" e depois em "Executar assim mesmo"; se o firewall perguntar sobre o Python na primeira vez que o `mlagents-learn` rodar, permita em redes privadas, porque o treino conversa só com a própria máquina.
 
 ## 5. Problemas comuns
 

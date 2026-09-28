@@ -35,7 +35,7 @@ Intervalo de 10h30 a 11h00, entre os módulos 1 e 2. A numeração, a ordem e as
 1. Clone este repositório, ou baixe o ZIP pelo GitHub.
 2. Siga `docs/00-instalacao.md` para instalar Python, PyTorch, o mlagents e, no Caminho A, o Unity Editor.
 3. Com o ambiente virtual ativado, rode `python scripts/verify_env.py`, como descrito na seção 4 de `docs/00-instalacao.md`, e confira que não há nenhuma FALHA no resultado.
-4. Baixe o build do FlappyBird na [Release v0.9.0](https://github.com/lucasbrandao4770/sbgames2026-tutorial-mlagents/releases/tag/v0.9.0) (pré-lançamento): `FlappyBird-Windows-x64.zip` no Windows ou `FlappyBird-macOS.zip` no macOS. Descompacte o conteúdo em uma pasta `builds/` na raiz do repositório clonado, de forma que o executável fique em `builds/FlappyBird-Windows-x64/FlappyBird.exe` ou em `builds/FlappyBird.app`.
+4. Baixe o build do FlappyBird na [Release v0.9.2](https://github.com/lucasbrandao4770/sbgames2026-tutorial-mlagents/releases/tag/v0.9.2) (pré-lançamento): `FlappyBird-Windows-x64.zip` no Windows ou `FlappyBird-macOS.zip` no macOS. Descompacte o conteúdo em uma pasta `builds/` na raiz do repositório clonado, de forma que o executável fique em `builds/FlappyBird-Windows-x64/FlappyBird.exe` ou em `builds/FlappyBird.app`.
 5. Teste o build uma vez antes do dia; os comandos e os avisos do sistema operacional (Gatekeeper no macOS, SmartScreen e firewall no Windows) estão na seção 4 de `docs/00-instalacao.md`.
 
 Quem for usar uma máquina do laboratório do evento não precisa clonar nem instalar nada: o pacote do laboratório já traz os arquivos deste repositório, o build do FlappyBird e as wheels Python. Siga o `LEIA-ME` de dentro do pacote; os comandos de treino são os mesmos.
@@ -68,6 +68,7 @@ Regras do dia:
 
 - Para relançar um `--run-id` já usado, adicione `--force` para sobrescrever o run, ou escolha um novo `--run-id` para manter o anterior; sem `--force`, o mlagents-learn recusa sobrescrever.
 - Às 10h05 o treino do Módulo 1 para com `Ctrl+C`, tenha ou não terminado os 50 mil passos: o ONNX é exportado mesmo assim, e as curvas são lidas como estão.
+- No Módulo 1, o jogo mostra um painel de treino no canto superior esquerdo, descrito em `docs/01-primeiro-agente.md`. Deixe a barra de velocidade dele em 20x, o padrão: em 1x o treino avança bem mais devagar, até cerca de 20 vezes, o que compromete o horário de corte das 10h05.
 - Em máquinas mais lentas, `--num-envs 2` deu um ganho de cerca de 1,7x nas nossas medições.
 - Os resultados de cada run ficam em `results/<run-id>/`. Para comparar curvas, abra um segundo terminal, ative o ambiente virtual e rode `tensorboard --logdir results` a partir da raiz do repositório; o TensorBoard abre em http://localhost:6006.
 - No Módulo 3, para testar uma segunda mudança, use um novo nome (`--run-id=ppo3`, `ppo4`) em vez de `--force`, para não apagar o `ppo2`.
@@ -86,7 +87,7 @@ Regras do dia:
 │   ├── imitation/                três runs de BC e GAIL do TCC (run1, run2, run3)
 │   └── desafio/                  modelo do desafio de design do Módulo 3
 ├── Demos/                        as duas demonstrações usadas pelos yamls de imitação
-├── results/reference/            curvas de referência do TCC e do ensaio de 24/09/2026, para comparar no TensorBoard
+├── results/reference/            curvas de referência do TCC e do ensaio de 24/09/2026, para comparar no TensorBoard, e um run de 500 mil passos, para assistir
 ├── unity/SBGamesMLAgents/        projeto Unity completo (Caminho A)
 ├── builds/                       build do FlappyBird baixado da Release (local, fora do git)
 ├── LICENSE                       MIT, para código
@@ -104,7 +105,7 @@ Regras do dia:
 
 ## Resultados de referência
 
-`results/reference/` guarda as curvas de treinamento do TCC (2024) e de um ensaio de 24/09/2026: um run de PPO contra o build do FlappyBird e os três runs de imitação (BC e GAIL) usados no Módulo 2. Nenhum deles tem os checkpoints `.pt`, só os eventos do TensorBoard, o ONNX final e a configuração usada. Para abrir ao lado dos seus próprios runs, rode `tensorboard --logdir results` a partir da raiz do repositório. Detalhes de cada run estão em `results/reference/README.md`. Os três runs de imitação foram etapas encadeadas de um currículo, em versões diferentes do jogo, e servem para ler as curvas de BC e GAIL, não para comparar valores com o seu `il1`.
+`results/reference/` guarda os três runs de imitação do TCC (2024), com BC e GAIL, usados no Módulo 2, e dois ensaios de PPO contra o build do FlappyBird: um de 50 mil passos (24/09/2026) e um de 500 mil passos (28/09/2026). Cada pasta tem o ONNX final e a configuração usada. O run de 500 mil passos não traz o evento do TensorBoard, para não distorcer as curvas de 50 mil, e é o único que traz também o checkpoint `.pt`, para assistir a ele jogando. Para abrir ao lado dos seus próprios runs, rode `tensorboard --logdir results` a partir da raiz do repositório. Detalhes de cada run estão em `results/reference/README.md`. Os três runs de imitação foram etapas encadeadas de um currículo, em versões diferentes do jogo, e servem para ler as curvas de BC e GAIL, não para comparar valores com o seu `il1`.
 
 ## Nota sobre uso de IA
 

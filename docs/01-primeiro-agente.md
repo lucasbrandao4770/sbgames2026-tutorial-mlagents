@@ -8,7 +8,7 @@ Treinar dois agentes com Reinforcement Learning (RL) usando PPO. O Basic é demo
 
 - Ambiente instalado conforme [docs/00-instalacao.md](00-instalacao.md), com `mlagents-learn --help` funcionando num ambiente virtual ativo (Python 3.10, PyTorch 2.2.1 CPU, mlagents 1.1.0).
 - Repositório clonado ou baixado, com o terminal aberto na raiz dele. Todos os comandos deste módulo rodam da raiz do repositório.
-- No Caminho B, o build do FlappyBird da [Release v0.9.0](https://github.com/lucasbrandao4770/sbgames2026-tutorial-mlagents/releases/tag/v0.9.0), descompactado na pasta `builds/` da raiz do repositório. O passo 4 de "Antes do dia", no [README.md](../README.md), mostra como. O executável fica em `builds/FlappyBird-Windows-x64/FlappyBird.exe` no Windows ou em `builds/FlappyBird.app` no macOS.
+- No Caminho B, o build do FlappyBird da [Release v0.9.2](https://github.com/lucasbrandao4770/sbgames2026-tutorial-mlagents/releases/tag/v0.9.2), descompactado na pasta `builds/` da raiz do repositório. O passo 4 de "Antes do dia", no [README.md](../README.md), mostra como. O executável fica em `builds/FlappyBird-Windows-x64/FlappyBird.exe` no Windows ou em `builds/FlappyBird.app` no macOS.
 - No Caminho A, o projeto Unity `unity/SBGamesMLAgents` aberto no Editor 6000.3.22f1 (no laboratório, a 6000.3.24f1).
 
 ## Parte 1: Basic, o Hello World
@@ -144,7 +144,7 @@ private void HandleFlappyCollision(object sender, FlappyScript.CollisionEventArg
 
 `Initialize()` roda uma vez por instância do agente, quando ele é ativado pela primeira vez. Como o FlappyBird recarrega a cena a cada morte, um agente novo nasce a cada vida. `Initialize()` roda de novo nesse momento. É ali que `FlappyAgent` busca a referência ao `FlappyScript` (o jogo original) e se inscreve no evento de colisão dele. A cada colisão, `HandleFlappyCollision()` decide a recompensa: +1 ao passar por um vão de canos (tag `Pipeblank`) e -1 ao bater num cano ou numa parede.
 
-Repare que `EndEpisode()` está comentado. Isso é proposital. Quem recria o pássaro é o próprio jogo, que recarrega a cena ao morrer. O agente é destruído junto com a cena, e o ML-Agents fecha o episódio nesse momento. Se o pássaro sobreviver por 5000 passos, o Max Step do agente também encerra o episódio. Na inferência, rodando só o modelo treinado sem o treinador Python, o ML-Agents não mostra pontuação. Ela precisa ser lida na própria interface do jogo.
+Repare que `EndEpisode()` está comentado. Isso é proposital. Quem recria o pássaro é o próprio jogo, que recarrega a cena ao morrer. O agente é destruído junto com a cena, e o ML-Agents fecha o episódio nesse momento. Se o pássaro sobreviver por 5000 passos, o Max Step do agente também encerra o episódio. Na inferência sem treinador, com o modelo rodando dentro do jogo, o ML-Agents não mostra pontuação nem recompensa. O painel de treino mostra as duas.
 
 ```csharp
 public override void CollectObservations(VectorSensor sensor)
@@ -221,7 +221,32 @@ No macOS:
 mlagents-learn python/configs/ppo/FlappyBird_ppo.yaml --env=builds/FlappyBird.app --run-id=ppo1
 ```
 
-Como o comando já aponta para o build com `--env`, o jogo abre sozinho, com gráficos ligados. Dá para acompanhar o pássaro treinando ao vivo, em velocidade acelerada. Enquanto treina, acompanhe o console: os passos avançando e a recompensa média subindo. Para o TensorBoard, abra um segundo terminal, ative o ambiente virtual, vá para a raiz do repositório e rode o comando abaixo. Depois abra http://localhost:6006 no navegador.
+Como o comando já aponta para o build com `--env`, o jogo abre sozinho, com gráficos ligados, e o painel de treino aparece no canto superior esquerdo da janela.
+
+#### O painel de treino
+
+| Linha do painel | O que mostra |
+|---|---|
+| Treinador conectado / Inferência (sem treinador) | Treinador conectado: um `mlagents-learn` está conectado e decide as ações do agente, treinando ou, com `--inference`, só jogando. Inferência (sem treinador): nenhum `mlagents-learn` conectado; joga o `.onnx` da linha Modelo, ou você, se ela mostrar `nenhum (controle manual)` |
+| Passos | Decisões tomadas pelo agente desta janela desde que o jogo abriu. Num treino novo, com um só ambiente, é o mesmo número que o treinador chama de Step |
+| Episódios | Episódios terminados desde que o jogo abriu |
+| Pontuação | Canos que o pássaro já passou na vida atual |
+| Melhor pontuação | A maior pontuação de uma vida desde que o jogo abriu |
+| Modelo | O `.onnx` que está jogando, ou `controlado pelo treinador` com o `mlagents-learn` conectado |
+| Recompensa do episódio | Soma da recompensa do episódio em andamento |
+| Média (últimos 20) | Média da recompensa final dos últimos 20 episódios |
+| Últimos 50 episódios | Gráfico de barras com a recompensa final de cada um dos últimos 50 episódios |
+| Velocidade | A barra e os botões 1x, 5x e 20x que controlam a velocidade do jogo |
+| Som | Liga ou desliga o som do jogo. Com um `mlagents-learn` conectado, fica sempre desligado, mesmo sem treinar |
+| Pasta | Com o treinador conectado, a pasta deste run dentro de `results`, como `results/ppo1`. Sem treinador, pode mostrar a execução mais recente de `results`, ou `nenhuma execução ainda`. No Editor, não aparece |
+| Salvo | Há quanto tempo o treinador salvou o `.onnx` mais recente dessa pasta, e em qual passo, ou `modelo final`. Antes do primeiro `.onnx`, mostra `nada salvo ainda`. Aparece junto com Pasta |
+| TensorBoard | Abre http://localhost:6006 no navegador. Antes, rode `tensorboard --logdir results` num segundo terminal, como no comando abaixo |
+| A- e A+ | Diminuem ou aumentam o painel, como as teclas `-` e `=` ou as teclas `-` e `+` do teclado numérico |
+| Rodapé | As teclas de atalho e a versão do jogo, como `v0.9.2` |
+
+A janela abre com 1024x576 e pode ser redimensionada, tanto ao abrir o jogo com um clique duplo quanto quando o `mlagents-learn` o abre com gráficos. Durante o treino, não clique na área do jogo nem aperte a barra de espaço: o pássaro bate as asas fora do controle do treinador, e isso atrapalha o treino. Cliques no painel não mexem no pássaro. O som começa desligado. A chave do painel ou a tecla `M` liga o som, e essa escolha fica salva para as próximas vezes. Com um `mlagents-learn` conectado, o som fica sempre desligado, mesmo sem treinar. A tecla `H` esconde ou mostra o painel. As teclas `-` e `=` (a mesma do `+`), e também `-` e `+` do teclado numérico, diminuem ou aumentam o painel, até a altura da janela. Para um painel maior, aumente a janela. Num treino com horário de corte, como o do Módulo 1 no dia do tutorial, deixe a velocidade em 20x: em 1x o treino avança bem mais devagar, até cerca de 20 vezes. A Média (últimos 20) do painel e o Mean Reward que aparece no console fazem médias sobre janelas diferentes de episódios: os dois números não precisam bater.
+
+Dá para acompanhar o pássaro treinando ao vivo, em velocidade acelerada. Enquanto treina, acompanhe o console: os passos avançando e a recompensa média subindo. Para o TensorBoard, abra um segundo terminal, ative o ambiente virtual, vá para a raiz do repositório e rode o comando abaixo. Depois abra http://localhost:6006 no navegador.
 
 ```bash
 tensorboard --logdir results
@@ -229,7 +254,7 @@ tensorboard --logdir results
 
 As tags mais importantes no TensorBoard são quatro. Cumulative Reward é a recompensa acumulada por episódio: deve subir. Episode Length é a duração do episódio: deve crescer conforme o pássaro sobrevive mais. Policy Loss e Entropy também ajudam: a queda gradual da entropia indica que a política está ficando mais decidida. Compare sua curva com a referência em `results/reference/FlappyBird_ppo`. Ela é um de três runs de 50 mil passos feitos contra o build em 24/09, sem gráficos, e terminou em +5,3. Como a mesma configuração terminou entre +2,3 e +6,6 nesses três runs, uma curva abaixo da referência não indica erro.
 
-A mesma configuração rodou várias vezes contra o build numa máquina de referência (MacBook, 24/09/2026). Sem tela (`--no-graphics`), três runs de 50 mil passos levaram de 75 a 115 segundos, cerca de 440 a 670 passos por segundo. Nos três, a recompensa média começou perto de -1,45 e terminou entre +2,3 e +6,6. Com gráficos ligados, como no comando acima, um run levou 156 segundos (cerca de 320 passos por segundo) e terminou em +2,2. Nas máquinas do laboratório, a estimativa, ainda não medida, é de 2 a 4 vezes mais lento. Uma saída para acelerar é `--num-envs=2`, só contra o build. Num run sem tela, 50 mil passos levaram 52 segundos, cerca de 1,7 vez mais rápido. Regra do dia: às 10h05 o treino para com `Ctrl+C`, treinado ou não. O `Ctrl+C` leva de 2 a 3 segundos para parar, e o treinador exporta o ONNX mesmo assim, com as curvas como estão. Para treinar de novo com o mesmo `--run-id`, é preciso acrescentar `--force`, senão o treinador recusa por já existir um run com esse nome.
+A mesma configuração rodou várias vezes contra o build numa máquina de referência (MacBook), entre 24/09 e 28/09/2026. Sem tela (`--no-graphics`), runs de 50 mil passos levaram entre 60 e 115 segundos. Em três runs de 24/09, a recompensa média começou perto de -1,45 e terminou entre +2,3 e +6,6. Com gráficos ligados, como no comando acima, com a janela de 1024x576, runs de 50 mil passos levaram entre 2 e 3 minutos. Nas máquinas do laboratório, a estimativa, ainda não medida, é de 2 a 4 vezes mais lento. Uma saída para acelerar é `--num-envs=2`, só contra o build. Num run sem tela de 24/09, com dois ambientes, 50 mil passos levaram 52 segundos, cerca de 1,7 vez mais rápido que os 92 segundos de um ambiente só, no mesmo dia. Regra do dia: às 10h05 o treino para com `Ctrl+C`, treinado ou não. O `Ctrl+C` leva de 2 a 3 segundos para parar, e o treinador exporta o ONNX mesmo assim, com as curvas como estão. Para treinar de novo com o mesmo `--run-id`, é preciso acrescentar `--force`, senão o treinador recusa por já existir um run com esse nome.
 
 ## Reward hacking
 
@@ -243,7 +268,27 @@ A recompensa do FlappyBird é do mesmo tipo. É esparsa, com só dois valores, +
 
 O projeto traz três modelos treinados em `Assets/FlappyBird/TFModels/`: `FlappyAgentLevel1.onnx`, `FlappyAgentLevel2.onnx` e `FlappyAgentLevel3.onnx`. Eles são o resultado dos três runs de imitação do TCC descritos em [docs/02-imitacao.md](02-imitacao.md). Cada run treinou numa versão um pouco mais difícil do jogo. No run 1, os canos tinham posição e distância fixas, e bater não encerrava o episódio. No run 2, os canos ficaram aleatórios, ainda sem colisão letal. No run 3, os canos seguiram aleatórios e a colisão passou a matar, a mesma regra do jogo atual.
 
-Treinar do mais fácil para o mais difícil, reaproveitando o checkpoint do run anterior a cada etapa (`--initialize-from`), é currículo por níveis (curriculum learning). O agente aprende o básico num cenário mais simples antes de encarar a versão completa. A cena `mainGame.unity` já vem com `FlappyAgentLevel1.onnx` atribuído no campo Model do Behavior Parameters do Flappy. Para comparar os três, arraste cada `.onnx` para esse campo e aperte Play. Na versão atual do jogo, com uma regra só, a ideia é notar a diferença de comportamento entre uma política pouco treinada (Level1) e uma mais madura (Level3). No dia, essa comparação é só uma demonstração de 3 minutos conduzida pelo instrutor, não uma atividade prática.
+Treinar do mais fácil para o mais difícil, reaproveitando o checkpoint do run anterior a cada etapa (`--initialize-from`), é currículo por níveis (curriculum learning). O agente aprende o básico num cenário mais simples antes de encarar a versão completa. A cena `mainGame.unity` já vem com `FlappyAgentLevel3.onnx` atribuído no campo Model do Behavior Parameters do Flappy: é o modelo que joga quando alguém abre o jogo com um clique duplo, sem treinador, e aparece como `FlappyAgentLevel3` na linha Modelo do painel de treino. Para comparar os três, arraste cada `.onnx` para esse campo e aperte Play. Na versão atual do jogo, com uma regra só, a ideia é notar a diferença de comportamento entre uma política pouco treinada (Level1) e uma mais madura (Level3). Medidos no Editor em velocidade normal, o Level1 teve recompensa média de -0,86 em 50 vidas, com melhor pontuação 1, em cerca de 2 minutos. O Level3 teve +3,90 em 10 vidas, com melhor pontuação 13, em 3 minutos. No dia, essa comparação é só uma demonstração de 3 minutos conduzida pelo instrutor, não uma atividade prática.
+
+## Assistir a um modelo treinado
+
+Para ver o `ppo1` jogando sozinho, sem treinar e sem alterar a pasta do run treinado, rode este comando na raiz do repositório, com o ambiente virtual ativado, depois que o treino do Módulo 1 terminar. Se o seu run tiver outro nome, troque `ppo1` por ele.
+
+No Windows:
+
+```bash
+mlagents-learn python/configs/ppo/FlappyBird_ppo.yaml --env=builds/FlappyBird-Windows-x64/FlappyBird.exe --run-id=assistir --initialize-from=ppo1 --inference --force --time-scale=1 --capture-frame-rate=0 --max-lifetime-restarts=0
+```
+
+No macOS:
+
+```bash
+mlagents-learn python/configs/ppo/FlappyBird_ppo.yaml --env=builds/FlappyBird.app --run-id=assistir --initialize-from=ppo1 --inference --force --time-scale=1 --capture-frame-rate=0 --max-lifetime-restarts=0
+```
+
+A forma do Windows não foi testada; ela só troca o caminho do `--env`. `assistir` é um nome de run descartável, recriado a cada execução do comando; `ppo1` é o run treinado, o mesmo nome usado no Módulo 1. `--time-scale=1` e `--capture-frame-rate=0` deixam o jogo perto do tempo real. Sem as duas opções, o jogo roda na velocidade de treino, bem mais rápido que o tempo real. Só com `--time-scale=1`, ele ainda roda quase 2 vezes mais rápido. `--max-lifetime-restarts=0` faz o comando terminar quando o jogo é fechado; sem essa opção, o treinador abre o jogo de novo. O jogo não treina: o console mostra `Not Training` em cada linha de resumo. Nesse modo, quem roda o modelo é o `mlagents-learn`, no Python. Por isso o painel mostra Treinador conectado, a linha Modelo mostra `controlado pelo treinador` e o som fica desligado. Em velocidade normal, a primeira linha de resumo leva cerca de 4 minutos para aparecer, porque o resumo sai a cada 2000 passos. Para parar, feche a janela do jogo ou aperte `Ctrl+C` no terminal. Depois de fechar a janela, o comando leva cerca de 15 segundos para terminar e mostra linhas `[ERROR]`, como `Worker 0 exceeded the allowed number of restarts.`: é o esperado. Atenção com `--force`: ele apaga o run com o nome dado em `--run-id`, por isso use sempre `assistir`, nunca `ppo1`. Sem `--force`, repetir o comando com o mesmo `--run-id=assistir` falha com "Previous data from this run ID was found. Either specify a new run ID, use --resume to resume this run, or use the --force parameter to overwrite existing data." Se o comando falhar logo depois de outro run com uma mensagem que cita `worker number 0 is still in use`, a porta ainda está ocupada: espere alguns segundos e rode de novo.
+
+Existe uma forma mais curta, `--run-id=ppo1 --resume --inference`, mas ela roda dentro da própria pasta do run treinado: reescreve `configuration.yaml`, descarta os checkpoints originais e infla o contador de passos salvo, mesmo sem treinar nada. Por isso o comando recomendado é o de cima, com `--initialize-from` e um `--run-id` novo, que só lê o checkpoint do run treinado e grava tudo o que produz numa pasta separada.
 
 ## Problemas comuns
 
