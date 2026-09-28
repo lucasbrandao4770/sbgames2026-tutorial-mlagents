@@ -53,9 +53,10 @@ Estes pontos devem aparecer ao vivo, principalmente nos Módulos 1 e 3, os dois 
 | Dois treinos na mesma máquina disputam a mesma porta: 5005 contra o build, 5004 no Editor | Contra o build, `--base-port` escolhe outra porta para o segundo treino. No Editor, a porta é sempre 5004 |
 | O treinador espera cerca de 60 s pela conexão antes de desistir | Com `--env`, o próprio `mlagents-learn` abre o build. Em máquinas lentas, `--timeout-wait=120` dá mais tempo. No Editor, aperte Play em até 60 s depois do comando |
 | O jogo abre e fecha, ou o treino não começa, sem pista do motivo | Leia o log do jogo. Pelo treinador, em `results/<run-id>/run_logs/Player-0.log`. Aberto à mão, em `~/Library/Logs/INF-UFG/FlappyBird/Player.log` no macOS ou em `%USERPROFILE%\AppData\LocalLow\INF-UFG\FlappyBird\Player.log` no Windows |
-| Treinar com a janela do jogo renderizada é mais lento | Usar `--no-graphics`. Numa máquina de referência (MacBook, 24/09/2026), três runs de 50 mil passos contra o build levaram de 75 a 115 s sem gráficos (cerca de 440 a 670 passos por segundo). Com gráficos, um run levou 156 s (cerca de 320 passos por segundo) |
-| Um único ambiente limita a velocidade de coleta de experiência | `--num-envs`, só contra o build (`--env`), roda vários ambientes em paralelo. Com `--num-envs=2`, um run sem gráficos levou 52 s, cerca de 1,7 vez mais rápido. No Editor, é sempre um ambiente por vez |
+| Treinar com a janela do jogo renderizada é mais lento | Usar `--no-graphics`. Numa máquina de referência (MacBook), entre 24/09 e 28/09/2026, runs de 50 mil passos contra o build levaram de 60 a 115 s sem gráficos. Com gráficos, com a janela de 1024x576, entre 2 e 3 minutos |
+| Um único ambiente limita a velocidade de coleta de experiência | `--num-envs`, só contra o build (`--env`), roda vários ambientes em paralelo. Com `--num-envs=2`, um run sem gráficos levou 52 s, cerca de 1,7 vez mais rápido que os 92 s de um ambiente só, no mesmo dia (24/09) |
 | O jogo roda em time scale 20 por padrão durante o treino | Comportamento esperado, sem ação necessária |
+| A barra de velocidade do painel deixa escolher entre 1x e 20x, com os botões 1x, 5x e 20x | Em um treino cronometrado, como o do Módulo 1, deixe em 20x: em 1x o treino avança bem mais devagar, até cerca de 20 vezes |
 | Interromper o treino no meio poderia perder o modelo | `Ctrl+C` interrompe em 2 a 3 s e ainda exporta o ONNX com o que foi aprendido até ali |
 | Máquinas mais lentas não cabem no tempo do módulo. No laboratório do evento, a estimativa, ainda não medida, é de 2 a 4 vezes mais lento que a máquina de referência | Reduzir `max_steps` para caber na janela de tempo combinada |
 | Os caminhos usados nos comandos (`--env=builds/...`, `demo_path: Demos/...`) são relativos ao diretório de trabalho | Rodar sempre `mlagents-learn` a partir da raiz do repositório clonado |
@@ -66,9 +67,9 @@ Estes pontos são específicos do projeto FlappyBird e do `FlappyAgent.cs` usado
 
 | Causa | Correção ou alavanca |
 |---|---|
-| `EndEpisode()` está comentado no FlappyAgent: o jogo recria o pássaro sozinho ao morrer | Na inferência, a pontuação se lê na interface do próprio jogo, não em uma métrica exposta pelo ML-Agents |
+| `EndEpisode()` está comentado no FlappyAgent: o jogo recria o pássaro sozinho ao morrer | Na inferência sem treinador, o ML-Agents não mostra pontuação nem recompensa; o painel de treino mostra as duas |
 | Recompensa que premia uma ação específica em vez do resultado desejado | Reward hacking: o checklist de observação, ação, recompensa e episódio, e outras armadilhas comuns, estão na Parte 3 de [docs/03-projeto-final.md](03-projeto-final.md) |
-| Som de pulo, pontuação e morte tocando em muitas máquinas ao mesmo tempo, em time scale acelerado | O `FlappyScript.cs` zera o volume (`AudioListener.volume = 0`) quando há um treinador conectado (`Academy.Instance.IsCommunicatorOn`). Na inferência, sem treinador, o som continua |
+| Som de pulo, pontuação e morte tocando em muitas máquinas ao mesmo tempo, em time scale acelerado | O `FlappyScript.cs` zera o volume (`AudioListener.volume = 0`) quando há um treinador conectado (`Academy.Instance.IsCommunicatorOn`), e o painel de treino mantém o som desligado por padrão mesmo sem treinador; a chave do painel ou a tecla `M` ligam o som, e a escolha fica salva |
 | Os três modelos de currículo, Level1 a Level3, não trocam sozinhos | Arrastar cada ONNX à mão para o campo Model do Behavior Parameters |
 | Tutoriais antigos citam o Barracuda ou o Sentis como o pacote que roda os modelos | No Unity 6.3 com o ML-Agents 4.1.0, quem roda o ONNX no editor e nos builds é o Inference Engine (`com.unity.ai.inference` 2.6.1), o novo nome do Sentis |
 
@@ -98,6 +99,7 @@ A proposta submetida ao SBGames previa 240 min de tutorial. O slot do evento tem
 - Self-play, para ambientes com agentes adversários, treinando o agente contra versões anteriores dele mesmo.
 - Currículo por parâmetros de ambiente (Environment Parameters), uma forma de automatizar a progressão de dificuldade além dos três modelos prontos deste tutorial.
 - Inference Engine para embarcar modelos treinados em builds finais, fora do editor, o mesmo mecanismo por trás da inferência do FlappyBird treinado neste tutorial.
+- Para assistir a um modelo treinado jogando sozinho sem o Editor, veja "Assistir a um modelo treinado" em [docs/01-primeiro-agente.md](01-primeiro-agente.md#assistir-a-um-modelo-treinado). Nesse comando, o modelo roda no Python, pelo `mlagents-learn`, e não no Inference Engine do build.
 - O TCC do autor, como referência mais profunda para RL, IL, currículo e os detalhes de implementação do FlappyBird. Ele inclui o ambiente PressButton e os runs deixados de fora deste repositório.
 
 ## Referências

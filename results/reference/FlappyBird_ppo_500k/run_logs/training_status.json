@@ -1,0 +1,110 @@
+{
+    "FlappyAgent": {
+        "checkpoints": [
+            {
+                "steps": 99874,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-99874.onnx",
+                "reward": 33.0,
+                "creation_time": 1790597705.176127,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-99874.pt"
+                ]
+            },
+            {
+                "steps": 149994,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-149994.onnx",
+                "reward": null,
+                "creation_time": 1790597793.455872,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-149994.pt"
+                ]
+            },
+            {
+                "steps": 199947,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-199947.onnx",
+                "reward": null,
+                "creation_time": 1790597866.19922,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-199947.pt"
+                ]
+            },
+            {
+                "steps": 249841,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-249841.onnx",
+                "reward": null,
+                "creation_time": 1790597935.213701,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-249841.pt"
+                ]
+            },
+            {
+                "steps": 299967,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-299967.onnx",
+                "reward": 33.0,
+                "creation_time": 1790598005.221652,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-299967.pt"
+                ]
+            },
+            {
+                "steps": 349997,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-349997.onnx",
+                "reward": 33.0,
+                "creation_time": 1790598070.030344,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-349997.pt"
+                ]
+            },
+            {
+                "steps": 399901,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-399901.onnx",
+                "reward": null,
+                "creation_time": 1790598148.891488,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-399901.pt"
+                ]
+            },
+            {
+                "steps": 449927,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-449927.onnx",
+                "reward": null,
+                "creation_time": 1790598227.350204,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-449927.pt"
+                ]
+            },
+            {
+                "steps": 499821,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-499821.onnx",
+                "reward": 33.0,
+                "creation_time": 1790598306.507704,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-499821.pt"
+                ]
+            },
+            {
+                "steps": 500021,
+                "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-500021.onnx",
+                "reward": 33.0,
+                "creation_time": 1790598306.522627,
+                "auxillary_file_paths": [
+                    "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-500021.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 500021,
+            "file_path": "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent.onnx",
+            "reward": 33.0,
+            "creation_time": 1790598306.522627,
+            "auxillary_file_paths": [
+                "/Users/lucas/workspace/ventures/sbgames/local_files/build/results/abertura_ppo500k/FlappyAgent/FlappyAgent-500021.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.1"
+    }
+}
