@@ -2,7 +2,7 @@
 
 ## O que é
 
-A Central de treino é uma janela simples que roda os mesmos comandos de terminal que o tutorial ensina. Ela treina um agente, assiste a um modelo já treinado jogando e abre o TensorBoard. Ela não substitui o terminal. É só uma alternativa para quem prefere clicar em botões. Nas abas Treinar e Assistir, um campo mostra o comando exato que vai rodar, e dá para copiar esse comando.
+A Central de treino é o jeito mais simples de seguir o tutorial no laboratório. Ela roda os mesmos comandos do terminal e mostra cada comando na tela. Ela treina um agente, assiste a um modelo já treinado jogando e abre o TensorBoard. Os comandos de terminal continuam nos outros guias. Nas abas Treinar e Assistir, um campo mostra o comando exato que vai rodar, e dá para copiar esse comando.
 
 ## Como abrir
 
@@ -16,7 +16,7 @@ Dê duplo clique em `central_de_treino.command`, na raiz do repositório. No mac
 
 ## A aba Treinar
 
-A aba Treinar cobre o Módulo 1, o primeiro run do Módulo 2 e o Módulo 3. O segundo e o terceiro run do Módulo 2 continuam exigindo `--initialize-from` no terminal, como em `docs/02-imitacao.md`, porque esta aba ainda não tem essa opção.
+A aba Treinar cobre o Módulo 1, o primeiro treino do Módulo 2 e o Módulo 3. O segundo e o terceiro treino do Módulo 2 continuam exigindo `--initialize-from` no terminal, como em `docs/02-imitacao.md`, porque esta aba ainda não tem essa opção.
 
 Escolha o arquivo de configuração no menu (o padrão é o do Módulo 1, `python/configs/ppo/FlappyBird_ppo.yaml`), o nome do treino e o build do jogo. O botão "Editar arquivo" abre a configuração escolhida no editor padrão do sistema, para quem quiser mudar um hiperparâmetro antes de treinar. O nome do treino só aceita letras, números, `_` e `-`, sem espaço nem acento. Isso acontece porque é o mesmo nome que vira uma pasta em `results/`. O build do jogo é detectado sozinho dentro de `builds/`. Use o botão "Procurar" se sua cópia estiver em outro lugar. A caixa "Mostrar a janela do jogo" acompanha a configuração escolhida, marcada ou desmarcada do mesmo jeito que os docs mostram para cada módulo. Desmarque para treinar sem gráficos e mais rápido, do mesmo jeito que `--no-graphics` no terminal. Se já existir um treino salvo com esse nome, a Central pergunta o que fazer. As opções são usar outro nome sugerido automaticamente, continuar esse treino com a configuração atual, recomeçar apagando o anterior, ou cancelar. Quando o treino termina, a linha de status mostra onde o modelo `.onnx` foi salvo.
 
@@ -34,7 +34,7 @@ Os outros arquivos em `python/configs/` não pertencem a nenhum dos três módul
 
 ## A aba Assistir
 
-Escolha, no menu, um treino que já tenha um modelo salvo. Só aparecem aqui treinos que já passaram por um checkpoint completo. Um treino de referência do repositório, em `results/reference/`, só aparece nesta lista quando também tem esse checkpoint guardado. Ele vem com o prefixo "reference/" no nome, para diferenciar dos seus próprios treinos. Defina um limite de tempo em minutos, ou marque "Sem limite de tempo" para assistir sem parar sozinho. A velocidade é sempre a normal, a mesma velocidade de quem está jogando. Esta aba nunca muda o treino original. Ela grava à parte uma cópia da seção behaviors desse treino e usa essa cópia no comando. Por isso funciona mesmo que o treino tenha sido feito sem gráficos ou com uma rede diferente da do arquivo do repositório. Essa cópia é escrita assim que o treino aparece nesta lista, não só quando você aperta Iniciar. Por isso, o comando mostrado já pode ser copiado e colado a qualquer momento. Fechar a janela do jogo também encerra a exibição. A linha de status muda para "O jogo foi fechado. Encerrando...". Quando o processo termina de verdade, ela muda para "O jogo foi fechado. A exibição terminou.", sem precisar clicar em nada.
+Escolha um treino seu que já terminou e clique em Iniciar. O jogo abre e o modelo joga sozinho. Enquanto um treino estiver rodando, a aba Assistir não abre. Clique em Parar e espere o modelo ser salvo. Defina um limite de tempo em minutos, ou marque "Sem limite de tempo" para assistir sem parar sozinho. A velocidade é sempre a normal, a mesma velocidade de quem está jogando. Fechar a janela do jogo também encerra a exibição. A linha de status muda para "O jogo foi fechado. Encerrando...". Quando o processo termina de verdade, ela muda para "O jogo foi fechado. A exibição terminou.", sem precisar clicar em nada. Só aparecem aqui treinos que já passaram por um checkpoint completo. Um treino de referência do repositório, em `results/reference/`, só aparece nesta lista quando também tem esse checkpoint guardado. Ele vem com o prefixo "reference/" no nome, para diferenciar dos seus próprios treinos. Esta aba nunca muda o treino original. Ela grava à parte uma cópia da seção behaviors desse treino e usa essa cópia no comando. Por isso funciona mesmo que o treino tenha sido feito sem gráficos ou com uma rede diferente da do arquivo do repositório. Essa cópia é escrita assim que o treino aparece nesta lista, não só quando você aperta Iniciar. Por isso, o comando mostrado já pode ser copiado e colado a qualquer momento.
 
 ## TensorBoard
 
@@ -46,7 +46,7 @@ Acima dos botões de Iniciar e Parar, um campo mostra o comando exato que está 
 
 ## Como parar
 
-O botão "Parar" pede para o treinador parar do jeito certo, exportando o modelo antes de sair, o mesmo efeito de um `Ctrl+C` no terminal. Isso pode levar alguns segundos. Se depois de 30 segundos o processo ainda não tiver parado, o botão "Forçar parada" fica disponível. Forçar a parada mata o processo na hora, e o modelo desse treino pode não ter sido salvo. Use essa opção só se o "Parar" normal não funcionar. Fechar a janela da Central pergunta antes, se algo estiver rodando: "Um treino está rodando. Parar e fechar?". Cancelar deixa tudo como está. Confirmar pede a parada do jeito certo, o mesmo efeito do botão "Parar", com os mesmos 30 segundos e a opção de forçar. A janela fecha de verdade só quando o processo realmente parar.
+O botão "Parar" pede para o treinador parar do jeito certo, exportando o modelo antes de sair, o mesmo efeito de um `Ctrl+C` no terminal. Isso pode levar alguns segundos. Se você clicar em "Parar" enquanto o jogo ainda está abrindo, isso pode levar até um minuto. Para parar um treino, clique em "Parar" e não feche a janela do jogo, porque o treinador abre o jogo de novo. Se depois de 30 segundos o processo ainda não tiver parado, o botão "Forçar parada" fica disponível. Forçar a parada mata o processo na hora, e o modelo desse treino pode não ter sido salvo. Use essa opção só se o "Parar" normal não funcionar. Fechar a janela da Central pergunta antes, se algo estiver rodando: "Um treino está rodando. Parar e fechar?". Não deixa tudo como está. Sim pede a parada do jeito certo, o mesmo efeito do botão "Parar", com os mesmos 30 segundos e a opção de forçar. A janela fecha de verdade só quando o processo realmente parar.
 
 ## Se algo der errado
 
