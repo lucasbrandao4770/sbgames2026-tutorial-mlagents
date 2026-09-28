@@ -248,3 +248,25 @@ The following files under `unity/SBGamesMLAgents/Assets/FlappyBird/` are art and
 - `Sounds/scored.mp3`
 
 They belong to their original authors and are included in this repository only for educational use in this tutorial. They are NOT covered by the MIT licence of this repository.
+
+## 5. Food/Button scene
+
+The following files under `unity/SBGamesMLAgents/Assets/PressButton/` come from Unity ML-Agents example assets, copyright Unity Technologies, licensed under the Apache License, Version 2.0 (reproduced in section 2). Source: `https://github.com/Unity-Technologies/ml-agents/tree/release_22/Project/Assets/ML-Agents/Examples`.
+
+- `Meshes/Switch.fbx` is byte identical to `Pyramids/Meshes/Switch.fbx` in that source.
+- `Prefabs/Food.prefab` is a copy of `FoodCollector/Prefabs/Food.prefab` in that source.
+- `Scenes/PressButton.unity` starts from the `Basic` example scene in that source.
+
+The following files under `unity/SBGamesMLAgents/Assets/SharedAssets/Materials/` also come from `Examples/SharedAssets/Materials/` in that source, under the same licence:
+
+- `GrayMiddle.mat`
+- `Red.mat`
+
+The following scripts under `unity/SBGamesMLAgents/Assets/PressButton/Scripts/` follow the Code Monkey tutorial video `https://www.youtube.com/watch?v=supqT7kqpEI`. No licence was found for the tutorial's code.
+
+- `Scripts/PressButtonAgent.cs`
+- `Scripts/FoodButton.cs`
+- `Scripts/FoodSpawner.cs`
+- `Scripts/Food.cs`
+
+`unity/SBGamesMLAgents/Assets/PressButton/TFModels/PressButtonAgent.onnx` and `unity/SBGamesMLAgents/Assets/PressButton/Demos/FoodAgentDemo.demo` are the author's (Lucas Brandao's) own work.
