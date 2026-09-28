@@ -142,8 +142,8 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     (
         "Previous data from this run ID was not found",
         (
-            'Esse nome de treino ainda não existe para continuar. Desmarque "continuar" ou '
-            "escolha outro nome."
+            "Não há dados salvos desse treino para continuar. "
+            "Clique em Iniciar de novo para começar do zero."
         ),
     ),
     (
@@ -160,6 +160,35 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     (
         "Couldn't launch",
         "Não consegui abrir o jogo. Confira o caminho do build.",
+    ),
+    # m13: on Windows mlagents reads the YAML with the locale encoding (cp1252), and
+    # turns this error into a TrainerConfigError, so this entry must come before that one.
+    (
+        "'charmap' codec can't decode",
+        (
+            "O treinador não conseguiu ler um caractere do arquivo de configuração. "
+            "Tire os acentos dos comentários desse arquivo e clique em Iniciar de novo."
+        ),
+    ),
+    (
+        "TrainerConfigError",
+        (
+            "O arquivo de configuração tem uma opção ou um valor inválido. "
+            "Veja o erro no registro abaixo e corrija o arquivo."
+        ),
+    ),
+    (
+        "UnityTimeOutException",
+        "O jogo demorou demais para responder. Clique em Iniciar de novo.",
+    ),
+    # The end of the FileNotFoundError that torch.load raises when "Continuar" runs on
+    # a training that never saved a checkpoint.
+    (
+        "checkpoint.pt'",
+        (
+            "Esse treino não tem um modelo salvo para continuar. "
+            "Clique em Iniciar de novo e escolha Recomeçar ou Usar outro nome."
+        ),
     ),
 )
 

@@ -300,9 +300,6 @@ def test_m22_no_dash_characters_in_user_facing_strings() -> None:
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="m13: diagnose_failure has no hint for UnityTimeOutException."
-)
 def test_m13_hint_for_unity_timeout() -> None:
     """m13: a Unity connection timeout gets a PT-BR hint, keyed on its meaning."""
     line = (
@@ -316,7 +313,6 @@ def test_m13_hint_for_unity_timeout() -> None:
     assert any(kw in lowered for kw in ("tempo", "demorou", "timeout", "--timeout-wait")), hint
 
 
-@pytest.mark.xfail(strict=True, reason="m13: diagnose_failure has no hint for TrainerConfigError.")
 def test_m13_hint_for_trainer_config_error() -> None:
     """m13: an invalid YAML option gets a PT-BR hint, keyed on its meaning."""
     line = (
@@ -330,10 +326,6 @@ def test_m13_hint_for_trainer_config_error() -> None:
     assert any(kw in lowered for kw in ("config", "yaml", "opç", "parâmetro", "arquivo")), hint
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="m13: diagnose_failure has no hint for a missing checkpoint.pt after Continuar.",
-)
 def test_m13_hint_for_missing_checkpoint_after_continue() -> None:
     """m13: FileNotFoundError on checkpoint.pt after Continuar gets a PT-BR hint."""
     line = (
@@ -347,17 +339,39 @@ def test_m13_hint_for_missing_checkpoint_after_continue() -> None:
     assert any(kw in lowered for kw in ("checkpoint", "continuar", "recomeç", "anterior")), hint
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='m13: the "Previous data...not found" hint still says Desmarque "continuar", '
-    "a checkbox that does not exist in the UI.",
-)
 def test_m13_resume_hint_does_not_mention_nonexistent_checkbox() -> None:
     """m13: the resume-not-found hint never tells the user to uncheck "continuar"."""
     output = ["Previous data from this run ID was not found."]
     hint = app.diagnose_failure(output, returncode=1)
     assert hint is not None
     assert "desmarque" not in hint.lower(), hint
+
+
+def test_m13_hint_for_charmap_decode_error() -> None:
+    """m13: on Windows mlagents reads the YAML as cp1252; a character it cannot decode
+    there gets a PT-BR hint to remove the accents from the config file's comments.
+
+    The output is the one mlagents 1.1.0 prints (cli_utils.load_config turns the
+    UnicodeDecodeError into a TrainerConfigError), so the generic TrainerConfigError
+    hint must not win over this one.
+    """
+    output = [
+        (
+            "UnicodeDecodeError: 'charmap' codec can't decode byte 0x8d in position 1210: "
+            "character maps to <undefined>"
+        ),
+        "During handling of the above exception, another exception occurred:",
+        (
+            "mlagents.trainers.exception.TrainerConfigError: There was an error decoding "
+            "Config file from python/configs/desafio/FlappyBird_desafio.yaml. Make sure your "
+            "file is save using UTF-8"
+        ),
+    ]
+    hint = app.diagnose_failure(output, returncode=1)
+    assert hint is not None, "no hint returned"
+    lowered = hint.lower()
+    assert "acent" in lowered, hint
+    assert "coment" in lowered, hint
 
 
 # ----------------------------------------------------------------------------
