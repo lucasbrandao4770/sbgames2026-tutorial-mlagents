@@ -169,15 +169,15 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     (
         "'charmap' codec can't decode",
         (
-            "O treinador não conseguiu ler um caractere do arquivo de configuração. "
-            "Tire os acentos dos comentários desse arquivo e clique em Iniciar de novo."
+            "O treinador não conseguiu ler o arquivo de configuração. "
+            "Tire os acentos dos comentários."
         ),
     ),
     (
         "TrainerConfigError",
         (
-            "O arquivo de configuração tem uma opção ou um valor inválido. "
-            "Veja o erro no registro abaixo e corrija o arquivo."
+            "O arquivo de configuração tem uma opção inválida. "
+            "Veja o erro no registro abaixo e corrija."
         ),
     ),
     (
@@ -189,8 +189,8 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     (
         "checkpoint.pt'",
         (
-            "Esse treino não tem um modelo salvo para continuar. "
-            "Clique em Iniciar de novo e escolha Recomeçar ou Usar outro nome."
+            "Esse treino não tem modelo salvo para continuar. "
+            "Inicie de novo e escolha Recomeçar ou outro nome."
         ),
     ),
 )
