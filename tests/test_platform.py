@@ -344,7 +344,7 @@ def test_m8_tensorboard_probe_stops_early_when_process_already_died(
         gui._tensorboard_proc = _StubProc(returncode=1)
         gui._poll_tensorboard_ready(time.monotonic() + 30.0)
         assert gui._tensorboard_proc is None
-        assert "fechou sozinho" in gui.status_var.get()
+        assert "não conseguiu abrir" in gui.status_var.get()
         assert probed == []
     finally:
         gui.container.destroy()

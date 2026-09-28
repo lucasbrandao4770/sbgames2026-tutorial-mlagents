@@ -639,7 +639,8 @@ def test_g2a_p4_sim_after_the_run_ended_by_itself_closes_at_once_and_leaves_no_m
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """G2a-P-4: the training ends by itself while "Parar e fechar?" is open: Sim closes
+    """G2a-P-4: the training ends by itself while "Parar, salvar o modelo e fechar a
+    Central?" is open: Sim closes
     the window at once, sends no stop, and leaves no closing mark that would close the
     window when the next run ends."""
     harness = make_app(_make_repo(tmp_path))

@@ -141,10 +141,7 @@ SUMMARY_LINE_RE = re.compile(
 _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     (
         "Previous data from this run ID was not found",
-        (
-            "Não há dados salvos desse treino para continuar. "
-            "Clique em Iniciar de novo para começar do zero."
-        ),
+        "Não há treino salvo com esse nome. Clique em Iniciar e escolha Recomeçar.",
     ),
     (
         "Previous data from this run ID was found",
@@ -152,10 +149,7 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     ),
     (
         "UnityWorkerInUseException",
-        (
-            "A porta de comunicação com o jogo ainda está em uso. Espere alguns segundos "
-            "e tente de novo."
-        ),
+        "Outro treino usa a porta do jogo (outra janela da Central ou terminal). Pare-o.",
     ),
     (
         "Couldn't launch",
@@ -165,17 +159,11 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     # turns this error into a TrainerConfigError, so this entry must come before that one.
     (
         "'charmap' codec can't decode",
-        (
-            "O treinador não conseguiu ler o arquivo de configuração. "
-            "Tire os acentos dos comentários."
-        ),
+        "O treinador não conseguiu ler a configuração. Tire os acentos dos comentários.",
     ),
     (
         "TrainerConfigError",
-        (
-            "O arquivo de configuração tem uma opção inválida. "
-            "Veja o erro no registro abaixo e corrija."
-        ),
+        "O arquivo de configuração tem uma opção inválida. Veja o erro no log abaixo.",
     ),
     (
         "UnityTimeOutException",
@@ -185,10 +173,7 @@ _KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
     # a training that never saved a checkpoint.
     (
         "checkpoint.pt'",
-        (
-            "Esse treino não tem modelo salvo para continuar. "
-            "Inicie de novo e escolha Recomeçar ou outro nome."
-        ),
+        "Não há modelo salvo para continuar. Clique em Iniciar e escolha Recomeçar.",
     ),
 )
 
@@ -649,8 +634,8 @@ def resolve_for_execution(display_args: list[str], python_bin: Path) -> list[str
         resolved = bin_dir / exe_name
     if not resolved.is_file():
         raise LauncherError(
-            f'"{program}" não foi encontrado no ambiente virtual ({bin_dir}). '
-            "Confira a instalação em docs/00-instalacao.md."
+            f'No laboratório, chame um instrutor. "{program}" não foi encontrado no '
+            f"ambiente virtual ({bin_dir}). Confira a instalação em docs/00-instalacao.md."
         )
     return [str(resolved), *display_args[1:]]
 
@@ -1177,7 +1162,9 @@ class CentralDeTreinoApp:
         self.time_limit_var = tk.StringVar(value=str(WATCH_DEFAULT_TIME_LIMIT_MIN))
         self.no_time_limit_var = tk.BooleanVar(value=False)
         self.command_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Pronto.")
+        self.status_var = tk.StringVar(
+            value="Escolha a configuração do módulo e clique em Iniciar."
+        )
         self.progress_var = tk.DoubleVar(value=0.0)
 
         self._build_widgets()
@@ -1561,7 +1548,7 @@ class CentralDeTreinoApp:
                 # the tutorial's bundled runs) - training into either would collide.
                 # G1-W-5: in any letter case, as Windows folders ignore it.
                 raise LauncherError(
-                    f'"{run_name}" é reservado pelo Central de treino; escolha outro nome.'
+                    f'"{run_name}" é um nome reservado da Central de treino. Escolha outro nome.'
                 )
             build = self._build_path
             if build is None:
@@ -1699,8 +1686,9 @@ class CentralDeTreinoApp:
             # or the venv's own interpreter is corrupted) - a short, specific
             # message beats the generic unexpected-error path for this one.
             raise LauncherError(
-                "Não consegui iniciar o treinador. O ambiente virtual pode estar "
-                "corrompido. Reinstale seguindo docs/00-instalacao.md.",
+                "No laboratório, chame um instrutor. Não consegui iniciar o treinador. "
+                "O ambiente virtual pode estar corrompido. Reinstale seguindo "
+                "docs/00-instalacao.md.",
                 detail=str(exc),
             ) from exc
         self._process = process
@@ -1777,7 +1765,7 @@ class CentralDeTreinoApp:
 
     def _watch_status_text(self) -> str:
         """Status shown while a watch session plays, independent of summary lines."""
-        text = "O modelo está jogando, ou clique em Parar."
+        text = "O modelo está jogando. Para encerrar, clique em Parar."
         if self._watch_deadline is not None:
             remaining = max(0, int(self._watch_deadline - time.monotonic()))
             minutes, seconds = divmod(remaining, 60)
@@ -1834,7 +1822,8 @@ class CentralDeTreinoApp:
                 self.status_var.set(f"Treino terminou com erro. {hint}")
             elif returncode != 0:
                 self.status_var.set(
-                    "O treino parou com erro. Veja as últimas linhas do registro abaixo."
+                    "O treino parou com erro. "
+                    "Chame um instrutor e mostre as últimas linhas do log abaixo."
                 )
             else:
                 self.status_var.set("Treino encerrado.")
@@ -1846,13 +1835,14 @@ class CentralDeTreinoApp:
         elif time_limit_stopped:
             self.status_var.set("Tempo limite atingido. A exibição terminou.")
         elif hint:
-            self.status_var.set(f"Sessão encerrada. {hint}")
+            self.status_var.set(f"A exibição terminou com erro. {hint}")
         elif returncode != 0:
             self.status_var.set(
-                "A exibição parou com erro. Veja as últimas linhas do registro abaixo."
+                "A exibição parou com erro. "
+                "Chame um instrutor e mostre as últimas linhas do log abaixo."
             )
         else:
-            self.status_var.set("Sessão de observação encerrada.")
+            self.status_var.set("A exibição terminou.")
         if self._watch_time_limit_job is not None:
             self.root.after_cancel(self._watch_time_limit_job)
             self._watch_time_limit_job = None
@@ -1872,8 +1862,9 @@ class CentralDeTreinoApp:
         # is set by on_stop() only, so the limit's own request always goes through.
         if self._process is not None and self._mode == "assistir" and not self._stop_requested:
             self._stopped_by_time_limit = True
-            self.status_var.set("Tempo limite atingido, parando...")
             self.on_stop()
+            # G1-U-10: set after on_stop(), whose "Parando..." used to hide it.
+            self.status_var.set("Tempo limite atingido, parando...")
 
     def on_stop(self) -> None:
         """Ask the running process to stop gracefully and arm the force-stop timer.
@@ -1920,10 +1911,11 @@ class CentralDeTreinoApp:
         if report is not None:
             self._append_log(report)  # H4: taskkill's return code
         self.force_button.state(["disabled"])
-        messagebox.showwarning(
-            "Central de treino",
-            "Parada forçada. O último modelo deste treino pode não ter sido salvo.",
-        )
+        if self._mode == "assistir":
+            text = "Parada forçada. A exibição terminou."
+        else:
+            text = "Parada forçada. O último modelo deste treino pode não ter sido salvo."
+        messagebox.showwarning("Central de treino", text)
 
     # -- outras ações ------------------------------------------------------
 
@@ -2040,9 +2032,7 @@ class CentralDeTreinoApp:
             # m8: died on its own (e.g. the port was already taken by something
             # non-HTTP) - do not wait out the rest of the 30 s to notice.
             self._tensorboard_proc = None
-            self._tensorboard_status(
-                "O TensorBoard fechou sozinho ao iniciar. Confira se a porta 6006 já está em uso."
-            )
+            self._tensorboard_status("O TensorBoard não conseguiu abrir. Chame um instrutor.")
             return
         if time.monotonic() >= deadline:
             # H6: slow is not failed. Keep probing while it runs, so the page still
@@ -2153,9 +2143,11 @@ class CentralDeTreinoApp:
                 # close once the process ends (_finish_process checks _closing).
                 self._closing = True
                 return
-            if not messagebox.askyesno(
-                "Central de treino", "Um treino está rodando. Parar e fechar?"
-            ):
+            if self._mode == "assistir":
+                question = "O modelo está jogando. Parar e fechar?"
+            else:
+                question = "Um treino está rodando. Parar, salvar o modelo e fechar a Central?"
+            if not messagebox.askyesno("Central de treino", question):
                 return
             if self._process is None or not self._process.is_running():
                 # G2a-P-4: the run ended by itself while the question was open.
@@ -2182,6 +2174,7 @@ class CentralDeTreinoApp:
 def tcl_tk_failure_message(exc: BaseException) -> str:
     """Short PT-BR explanation for when tk.Tk() still fails after auto-discovery."""
     return (
+        "No laboratório, chame um instrutor.\n"
         "Não consegui abrir a janela porque este Python não encontrou o Tcl/Tk.\n"
         "Provavelmente o ambiente virtual está com um problema de instalação.\n"
         "Rode scripts/verify_env.py para checar o ambiente, ou reinstale seguindo "
