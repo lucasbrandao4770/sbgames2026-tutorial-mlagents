@@ -601,6 +601,10 @@ def build_tensorboard_command() -> list[str]:
     return ["tensorboard", "--logdir", "results"]
 
 
+# T9c: importing PyTorch alone can take a minute on a cold lab PC; past this the check stops.
+VERIFY_ENV_TIMEOUT_S = 180.0
+
+
 def build_verify_env_command() -> list[str]:
     """Build the doc-style command to run the environment checker."""
     return ["python", "scripts/verify_env.py"]
@@ -1150,6 +1154,9 @@ class CentralDeTreinoApp:
         self._poll_job: str | None = None
         self._force_stop_job: str | None = None
         self._watch_time_limit_job: str | None = None
+        self._verify_job: str | None = None
+        self._verify_proc: subprocess.Popen | None = None
+        self._verify_cancelled: bool = False
         self._config_widgets: list[tk.Widget] = []
         self._config_by_label: dict[str, Path] = {}
         self._runs_by_label: dict[str, TrainedRun] = {}
@@ -1299,9 +1306,10 @@ class CentralDeTreinoApp:
 
         utility_row = ttk.Frame(frame)
         utility_row.grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Button(utility_row, text="Verificar instalação", command=self.on_verify_env).pack(
-            side="left", padx=(0, 4)
+        self.verify_button = ttk.Button(
+            utility_row, text="Verificar instalação", command=self.on_verify_env
         )
+        self.verify_button.pack(side="left", padx=(0, 4))
         ttk.Button(
             utility_row, text="Abrir pasta de resultados", command=self.on_open_results
         ).pack(side="left", padx=4)
@@ -1956,7 +1964,12 @@ class CentralDeTreinoApp:
             self._show_unexpected_error("abrir o arquivo de configuração", exc)
 
     def on_verify_env(self) -> None:
-        """Run scripts/verify_env.py in the background and log its output."""
+        """Run scripts/verify_env.py in the background and log its output.
+
+        T9c: the button stays disabled while the check runs, and the log area and the
+        status line say at once that it runs. The worker thread never touches Tk: it
+        puts its outcome on a queue that _poll_verify_env drains on the Tk thread.
+        """
         display_args = build_verify_env_command()
         self._append_log("$ " + format_command_for_display(display_args))
         try:
@@ -1966,23 +1979,94 @@ class CentralDeTreinoApp:
             if exc.detail:
                 self._append_log(exc.detail)
             return
+        self.verify_button.state(["disabled"])
+        self._append_log("Verificando a instalação. Na primeira vez, pode levar até um minuto.")
+        self._verify_env_status("Verificando a instalação. Pode levar até um minuto.")
+        results: queue.Queue[tuple[str, str, int | None]] = queue.Queue()
+        threading.Thread(
+            target=self._run_verify_env, args=(real_args, results), daemon=True
+        ).start()
+        self._poll_verify_env(results)
 
-        def run() -> None:
+    def _run_verify_env(
+        self, args: list[str], results: queue.Queue[tuple[str, str, int | None]]
+    ) -> None:
+        """Worker thread: run the check, then put (kind, output, exit code) on results.
+
+        kind is "fim", "demorou" (stopped at VERIFY_ENV_TIMEOUT_S) or "erro" (could not
+        start). Something always goes on the queue, so the button always comes back.
+        """
+        outcome: tuple[str, str, int | None] = ("erro", "", None)
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=self.repo_root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",  # T9c-4: a bad byte must not hide the whole result
+            )
+            # Publish first, then check: _close_now sets the flag first, then reads the
+            # handle, so one of the two always kills a check the window outlived.
+            self._verify_proc = proc
+            if self._verify_cancelled:
+                proc.kill()
             try:
-                result = subprocess.run(
-                    real_args,
-                    cwd=self.repo_root,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
-                output = result.stdout + result.stderr
-            except Exception as exc:  # noqa: BLE001
-                output = f"Falha ao rodar verify_env.py: {exc}"
-            self.root.after(0, lambda: self._append_log(output))
+                output, _ = proc.communicate(timeout=VERIFY_ENV_TIMEOUT_S)
+                outcome = ("fim", output or "", proc.returncode)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    output, _ = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    output = ""
+                outcome = ("demorou", output or "", None)
+        except Exception as exc:  # noqa: BLE001
+            outcome = ("erro", str(exc), None)
+        finally:
+            results.put(outcome)
 
-        threading.Thread(target=run, daemon=True).start()
+    def _poll_verify_env(self, results: queue.Queue[tuple[str, str, int | None]]) -> None:
+        """Tk thread: wait for the worker's outcome without blocking the window."""
+        self._verify_job = None
+        if not self.verify_button.winfo_exists():
+            return
+        try:
+            kind, output, returncode = results.get_nowait()
+        except queue.Empty:
+            self._verify_job = self.root.after(100, lambda: self._poll_verify_env(results))
+            return
+        self._on_verify_env_result(kind, output, returncode)
+
+    def _on_verify_env_result(self, kind: str, output: str, returncode: int | None) -> None:
+        self._verify_proc = None
+        self.verify_button.state(["!disabled"])
+        if kind == "erro":
+            message = "Não consegui iniciar a verificação. Chame um instrutor."
+            self._append_log(message)
+            self._append_log(f"Detalhe técnico: {output}")
+            self._verify_env_status(message)
+            return
+        # The script's own lines, as printed, so that its Resumo line ends the log area.
+        self._append_log(output.rstrip("\n"))
+        if kind == "demorou":
+            message = (
+                "A verificação demorou demais e foi interrompida. "
+                "Clique mais uma vez. Se repetir, chame um instrutor."
+            )
+            self._append_log(message)
+            self._verify_env_status(message)
+        elif returncode == 0:
+            summary = [line for line in output.splitlines() if line.startswith("Resumo:")]
+            self._verify_env_status(summary[-1] if summary else "Verificação concluída.")
+        else:
+            self._verify_env_status("A verificação encontrou uma falha. Chame um instrutor.")
+
+    def _verify_env_status(self, text: str) -> None:
+        """The status line belongs to a running training or watch; only the log gets text then."""
+        if self._process is None:
+            self.status_var.set(text)
 
     def on_open_results(self) -> None:
         """Open results/ in the OS file manager."""
@@ -2168,10 +2252,15 @@ class CentralDeTreinoApp:
         """Stop TensorBoard if running, cancel pending timers, and destroy the root."""
         if self._tensorboard_proc is not None:
             stop_tensorboard(self._tensorboard_proc)
+        # T9c: a check still running dies with the window (see _run_verify_env).
+        self._verify_cancelled = True
+        if self._verify_proc is not None:
+            self._verify_proc.kill()
         # Cancel any pending after() timers explicitly instead of relying on
         # destroy() to discard them: a scheduled _poll_process tick that still
         # fires mid-teardown would touch widgets that no longer exist.
-        for job in (self._poll_job, self._force_stop_job, self._watch_time_limit_job):
+        jobs = (self._poll_job, self._force_stop_job, self._watch_time_limit_job, self._verify_job)
+        for job in jobs:
             if job is not None:
                 self.root.after_cancel(job)
         self.root.destroy()
