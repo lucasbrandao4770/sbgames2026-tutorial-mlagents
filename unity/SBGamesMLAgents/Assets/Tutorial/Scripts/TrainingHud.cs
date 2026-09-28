@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.IO;
 using Unity.MLAgents;
+using Unity.MLAgents.Demonstrations;
 using Unity.MLAgents.Policies;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -35,7 +36,8 @@ public class TrainingHud : MonoBehaviour
     const float TooltipWidth = 260f;
     const float ModelLabelWidth = 80f;
     const float ResultsLabelWidth = 60f;
-    const float VersionWidth = 60f;
+    // No fixed width: v0.9.2 vs v0.10.0-exp1 already showed why a guessed constant runs past the panel
+    // edge. versionWidth below is measured from the actual text instead.
 
     const float DefaultUiScale = 1.6f;
     const float MinUiScale = 1f;
@@ -66,6 +68,12 @@ public class TrainingHud : MonoBehaviour
     const string HiddenHintText = "H mostra o painel";
     const float HiddenHintDuration = 8f;
     const string TensorBoardUrl = "http://localhost:6006";
+    // The empty first scene in the build; TrainingHud draws nothing there, and the scene menu (SceneBoot)
+    // owns it instead. Public because SceneBoot compares against the same constant.
+    public const string BootSceneName = "Boot";
+    // Where a demonstration recorded from the panel goes, relative to the working directory: the folder
+    // that contains the app when launched directly, the same way ML-Agents' own demo_path resolves.
+    const string RecordingRelativeDir = "Demos/gravadas";
 
     static readonly Color PanelColor = new Color(0f, 0f, 0f, 0.7f);
     static readonly Color TooltipColor = new Color(0.05f, 0.05f, 0.05f, 0.95f);
@@ -144,8 +152,23 @@ public class TrainingHud : MonoBehaviour
         + " No fim de um treino, mesmo interrompido com Ctrl+C, grava também o modelo final.");
     readonly GUIContent tensorBoardButtonLabel = new GUIContent("TensorBoard",
         "Abre " + TensorBoardUrl + " no navegador. Antes, rode tensorboard --logdir results em outro terminal, na raiz do repositório.");
+    readonly GUIContent sceneMenuButtonLabel = new GUIContent("Menu de cenas",
+        "Volta para a tela de escolha de cena. Só aparece sem treinador conectado: com um treinador, a cena é decidida na conexão e não muda mais.");
+    readonly GUIContent startRecordingLabel = new GUIContent("Gravar demonstração",
+        "Troca o agente para controle manual (Heuristic) e grava uma demonstração .demo em " + RecordingRelativeDir + ".");
+    readonly GUIContent stopRecordingLabel = new GUIContent("Parar gravação",
+        "Fecha o arquivo .demo e devolve o controle ao modelo (ou ao treinador, se um estiver conectado).");
+    // Mutable: text and tooltip set together in TrackAgent, only when the tracked agent changes.
+    readonly GUIContent recordingKeysContent = new GUIContent();
+    // Mutable: text set in RefreshRecordingInfo (only when the file count changes), tooltip set in
+    // ArmRecording; OnGUI just assigns both fields each Repaint, which allocates nothing.
+    readonly GUIContent recordingStatusContent = new GUIContent();
     // Text set in Awake: Application.version is unsafe to read from a field initializer.
     readonly GUIContent versionLabel = new GUIContent();
+    // Measured once in EnsureStyles, right after footerStyle exists and versionLabel.text is already final
+    // (set in Awake, which always runs first) -- so the footer's two columns split from the real text width
+    // instead of a guess, and the hint column keeps whatever room that leaves.
+    float versionWidth;
     readonly GUIContent hiddenHintLabel = new GUIContent(HiddenHintText);
     readonly GUIContent tooltipContent = new GUIContent();
     // Mutable value cells, updated only when their cached, ellipsized text changes (see CachedEllipsis).
@@ -186,6 +209,24 @@ public class TrainingHud : MonoBehaviour
     int lastTotalSteps;
     // Set once the tracked agent ends its own episodes, whose final reward the panel cannot see.
     bool rewardsUnknown;
+
+    // True once the active scene is BootSceneName; OnGUI draws nothing there (SceneBoot owns that screen).
+    bool inBootScene;
+
+    // Demonstration recording: refreshed together with decisionPeriod/hasModel whenever TrackAgent finds a
+    // (new) agent. recordingSupported requires both a DemonstrationRecorder on the agent and a known
+    // Heuristic key mapping (KeysForBehavior); Basic's MoveToGoalAgent has neither, so it never shows.
+    DemonstrationRecorder recorderComp;
+    BehaviorParameters behaviorParametersComp;
+    bool recordingSupported;
+    string recordingKeysText;
+    // Desired state, kept across the agent being replaced (FlappyBird's per-death scene reload): TrackAgent
+    // re-arms the new agent's recorder when this is still true, per the brief's "re-arm after reload".
+    bool isRecording;
+    int recordingFileCount = -1;
+    string recordingFolderFullPath = "";
+    string recordingStatusText = "";
+    bool loggedRecordingError;
 
     // Refreshed together with decisionPeriod whenever TrackAgent finds a (new) agent.
     bool hasModel;
@@ -287,6 +328,112 @@ public class TrainingHud : MonoBehaviour
             AudioListener.volume = on ? 1f : 0f;
     }
 
+    /// <summary>
+    /// Switches the tracked agent to heuristic control and starts recording a demonstration. Public so a
+    /// screenshot/capture harness can drive it without pressing keys. A no-op under a trainer (the button
+    /// that calls this does not exist then), with no supported agent, or already recording.
+    /// </summary>
+    public void StartRecording()
+    {
+        if (LaunchOptions.StartedByTrainer || !recordingSupported || isRecording)
+            return;
+        isRecording = true;
+        ArmRecording();
+        Debug.Log("TrainingHud: recording started (" + recordingFolderFullPath + ")");
+    }
+
+    /// <summary>Closes the current demonstration file and gives control back to the model. Public for the
+    /// same reason as StartRecording.</summary>
+    public void StopRecording()
+    {
+        if (!isRecording)
+            return;
+        isRecording = false;
+        if (recorderComp != null)
+        {
+            recorderComp.Close();
+            recorderComp.Record = false;
+        }
+        if (behaviorParametersComp != null)
+        {
+            behaviorParametersComp.BehaviorType = BehaviorType.Default;
+            behaviorType = BehaviorType.Default;
+        }
+        Debug.Log("TrainingHud: recording stopped");
+    }
+
+    // Applies the desired recording state to the currently tracked agent's recorder: the directory, Record
+    // itself, and HeuristicOnly. Called both from StartRecording and, silently, whenever TrackAgent re-finds
+    // an agent while isRecording is already true (FlappyBird's per-death reload).
+    void ArmRecording()
+    {
+        if (recorderComp == null)
+            return;
+        recorderComp.DemonstrationDirectory = RecordingRelativeDir;
+        recorderComp.Record = true;
+        if (behaviorParametersComp != null)
+        {
+            behaviorParametersComp.BehaviorType = BehaviorType.HeuristicOnly;
+            behaviorType = BehaviorType.HeuristicOnly;
+        }
+        recordingFolderFullPath = Path.GetFullPath(RecordingRelativeDir);
+        recordingFileCount = Directory.Exists(recordingFolderFullPath)
+            ? Directory.GetFiles(recordingFolderFullPath, "*.demo").Length
+            : 0;
+        recordingStatusText = "Gravando: " + RecordingRelativeDir + " (" + recordingFileCount.ToString("N0", numberFormat) + " arquivo(s))";
+    }
+
+    // Keys read from each agent's own Heuristic() (FlappyAgent.cs, PressButtonAgent.cs); null means the
+    // behavior has no Heuristic worth recording from (Basic's MoveToGoalAgent has none).
+    static string KeysForBehavior(string behaviorName)
+    {
+        switch (behaviorName)
+        {
+            case "FlappyAgent": return "Espaço";
+            case "PressButtonAgent": return "setas/WASD, E";
+            default: return null;
+        }
+    }
+
+    static string KeysTooltipForBehavior(string behaviorName)
+    {
+        switch (behaviorName)
+        {
+            case "FlappyAgent": return "Espaço faz o pássaro pular.";
+            case "PressButtonAgent": return "Setas ou WASD movem o agente, E aciona o botão.";
+            default: return "";
+        }
+    }
+
+    // Counts the .demo files already written, so the panel can show progress while recording. Throttled
+    // together with RefreshResultsInfo since both touch disk; every exception just hides the count. The
+    // cached recordingStatusText string is only rebuilt when the count actually changes.
+    void RefreshRecordingInfo()
+    {
+        if (!isRecording)
+            return;
+        try
+        {
+            int count = Directory.Exists(recordingFolderFullPath)
+                ? Directory.GetFiles(recordingFolderFullPath, "*.demo").Length
+                : 0;
+            if (count != recordingFileCount)
+            {
+                recordingFileCount = count;
+                recordingStatusText = "Gravando: " + RecordingRelativeDir + " (" + recordingFileCount.ToString("N0", numberFormat) + " arquivo(s))";
+            }
+            loggedRecordingError = false;
+        }
+        catch (System.Exception e)
+        {
+            if (!loggedRecordingError)
+            {
+                loggedRecordingError = true;
+                Debug.Log("TrainingHud: recording file count hidden after a file system error (" + e.GetType().Name + ")");
+            }
+        }
+    }
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -318,6 +465,7 @@ public class TrainingHud : MonoBehaviour
 
         // The first scene finished loading before this object existed.
         hasScore = FindAnyObjectByType<ScoreManagerScript>() != null;
+        inBootScene = SceneManager.GetActiveScene().name == BootSceneName;
         OnAcademyReady();
     }
 
@@ -343,6 +491,7 @@ public class TrainingHud : MonoBehaviour
     {
         searchPending = true;
         hasScore = FindAnyObjectByType<ScoreManagerScript>() != null;
+        inBootScene = scene.name == BootSceneName;
     }
 
     void Update()
@@ -393,6 +542,7 @@ public class TrainingHud : MonoBehaviour
         {
             nextResultsRefresh = Time.realtimeSinceStartup + ResultsRefreshInterval;
             RefreshResultsInfo();
+            RefreshRecordingInfo();
         }
     }
 
@@ -489,6 +639,25 @@ public class TrainingHud : MonoBehaviour
             hasModel = model != null;
             modelName = hasModel ? model.name : "";
             behaviorType = behaviorParameters != null ? behaviorParameters.BehaviorType : BehaviorType.Default;
+
+            behaviorParametersComp = behaviorParameters;
+            recorderComp = agent.GetComponent<DemonstrationRecorder>();
+            recordingKeysText = KeysForBehavior(behaviorParameters != null ? behaviorParameters.BehaviorName : null);
+            recordingSupported = recorderComp != null && recordingKeysText != null;
+            if (recordingSupported)
+            {
+                recordingKeysContent.text = "Teclas: " + recordingKeysText;
+                recordingKeysContent.tooltip = KeysTooltipForBehavior(behaviorParameters.BehaviorName);
+            }
+            if (isRecording)
+            {
+                // FlappyBird destroys and recreates the agent on every death; re-arm the fresh recorder so
+                // "still recording" keeps meaning something across that reload, as the brief requires.
+                if (recordingSupported)
+                    ArmRecording();
+                else
+                    isRecording = false;
+            }
         }
 
         int completed = agent.CompletedEpisodes;
@@ -701,13 +870,19 @@ public class TrainingHud : MonoBehaviour
         int statRows = 2 + (hasScore ? 2 : 0) + 1 + (rewardsUnknown ? 1 : 2);
         float chart = rewardsUnknown ? 0f : RowHeight + ChartHeight + Gap;
         float resultsHeight = hasResultsFolder ? 2f * RowHeight + Gap : 0f;
+        bool showRecording = recordingSupported && !LaunchOptions.StartedByTrainer;
+        float recordingHeight = showRecording
+            ? RowHeight + Gap + ButtonHeight + Gap + (isRecording ? RowHeight + Gap : 0f)
+            : 0f;
+        float sceneMenuHeight = LaunchOptions.StartedByTrainer ? 0f : ButtonHeight + Gap;
         return 2f * Padding + TitleHeight + RowHeight + Gap + statRows * RowHeight + Gap + chart
-            + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap + resultsHeight + ButtonHeight + Gap + FooterHeight;
+            + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap + resultsHeight + ButtonHeight + Gap
+            + recordingHeight + sceneMenuHeight + FooterHeight;
     }
 
     void OnGUI()
     {
-        if (headless)
+        if (headless || inBootScene)
             return;
         if (!Visible)
         {
@@ -819,11 +994,42 @@ public class TrainingHud : MonoBehaviour
         }
         y += ButtonHeight + Gap;
 
-        float hintWidth = width - VersionWidth;
+        if (recordingSupported && !LaunchOptions.StartedByTrainer)
+        {
+            GUI.Label(new Rect(x, y, width, RowHeight), recordingKeysContent, labelStyle);
+            y += RowHeight + Gap;
+            if (GUI.Button(new Rect(x, y, width, ButtonHeight), isRecording ? stopRecordingLabel : startRecordingLabel, buttonStyle))
+            {
+                if (isRecording)
+                    StopRecording();
+                else
+                    StartRecording();
+            }
+            y += ButtonHeight + Gap;
+            if (isRecording)
+            {
+                recordingStatusContent.text = recordingStatusText;
+                recordingStatusContent.tooltip = recordingFolderFullPath;
+                GUI.Label(new Rect(x, y, width, RowHeight), recordingStatusContent, labelStyle);
+                y += RowHeight + Gap;
+            }
+        }
+
+        if (!LaunchOptions.StartedByTrainer)
+        {
+            if (GUI.Button(new Rect(x, y, width, ButtonHeight), sceneMenuButtonLabel, buttonStyle))
+            {
+                StopRecording();
+                SceneManager.LoadScene(BootSceneName);
+            }
+            y += ButtonHeight + Gap;
+        }
+
+        float hintWidth = width - versionWidth;
         if (footerHintCache.Set(FooterHintText, footerStyle, hintWidth))
             footerHintContent.text = footerHintCache.Text;
         GUI.Label(new Rect(x, y, hintWidth, FooterHeight), footerHintContent, footerStyle);
-        GUI.Label(new Rect(x + hintWidth, y, VersionWidth, FooterHeight), versionLabel, footerStyle);
+        GUI.Label(new Rect(x + hintWidth, y, versionWidth, FooterHeight), versionLabel, footerStyle);
 
         DrawTooltip(scale);
         GUI.matrix = previousMatrix;
@@ -958,6 +1164,7 @@ public class TrainingHud : MonoBehaviour
         titleStyle = new GUIStyle(labelStyle) { fontSize = 21, fontStyle = FontStyle.Bold };
         footerStyle = new GUIStyle(labelStyle) { fontSize = 16 };
         footerStyle.normal.textColor = new Color(1f, 1f, 1f, 0.75f);
+        versionWidth = footerStyle.CalcSize(versionLabel).x + 4f;
         tooltipStyle = new GUIStyle(labelStyle)
         {
             fontSize = 16,
