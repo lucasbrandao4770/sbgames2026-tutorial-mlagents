@@ -98,15 +98,6 @@ def _windows_process_with_fake_pid(repo: Path, pid: int = 4321) -> app.ManagedPr
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H2: _refresh_trained_runs only catches LauncherError around "
-        "_ensure_watch_config (central_de_treino.py:1305-1308); an OSError/"
-        "PermissionError from generate_watch_config escapes _finish_process "
-        "(central_de_treino.py:1735), so the pending _close_now() at :1737 never runs."
-    ),
-)
 def test_h2_pending_close_survives_watch_config_write_failure(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -497,15 +488,6 @@ def test_h7_start_failure_feedback_says_what_to_do(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H1: main() (central_de_treino.py:2017-2034) never sets "
-        "root.report_callback_exception, so a Tk callback exception hits Tkinter's "
-        "default handler (writes to sys.stderr, which is None under pythonw) instead "
-        "of the app's dialog+log path."
-    ),
-)
 def test_h1_callback_exception_reaches_unexpected_error_path(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

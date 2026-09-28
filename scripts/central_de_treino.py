@@ -1342,6 +1342,10 @@ class CentralDeTreinoApp:
                 self._ensure_watch_config(run)
             except LauncherError:
                 pass
+            except OSError as exc:
+                # H2: a file error (an antivirus lock, a read-only results/ folder)
+                # must not escape: in _finish_process it would skip a pending close.
+                self._append_log(f'Erro ao preparar "{run.relative_id}" para assistir: {exc}')
         if current in self._runs_by_label:
             self.watch_run_var.set(current)
         else:
@@ -2099,6 +2103,19 @@ def main() -> None:
     root.geometry(f"{width}x{height}")
     root.minsize(min(760, width), min(560, height))
     app = CentralDeTreinoApp(root, repo_root=repo_root)
+
+    def _report_callback_exception(
+        exc_type: type[BaseException], exc: BaseException, tb: object
+    ) -> None:
+        # H1: Tk's default handler prints to sys.stderr, which is None under pythonw,
+        # so a failing button would just do nothing. Use the app's error log and
+        # dialog instead. Never raise here: that would end mainloop() and the app.
+        try:
+            app._show_unexpected_error("executar uma ação", exc)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    root.report_callback_exception = _report_callback_exception
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
 
