@@ -17,7 +17,7 @@ public class TrainingHud : MonoBehaviour
     const float ReferenceHeight = 1080f;
     const float PanelX = 16f;
     const float PanelY = 16f;
-    const float PanelWidth = 320f;
+    const float PanelWidth = 340f;
     const float Padding = 12f;
     const float TitleHeight = 30f;
     const float SizeButtonWidth = 36f;
@@ -38,6 +38,13 @@ public class TrainingHud : MonoBehaviour
     const float UiScaleStep = 0.2f;
     const string UiScaleKey = "TrainingHud.Scale";
     const string SoundKey = "TrainingHud.Sound";
+
+    // Smaller windows (the trainer asks for 84x84 by default) are reopened at the build's default size.
+    const int MinWindowWidth = 640;
+    const int MinWindowHeight = 360;
+    const int WindowWidth = 1024;
+    const int WindowHeight = 576;
+    const float WindowRecheckDelay = 1f;
 
     const int ChartSize = 50;
     const int MeanSize = 20;
@@ -69,14 +76,31 @@ public class TrainingHud : MonoBehaviour
     // Sound preference, saved in PlayerPrefs; off unless the user turns it on.
     public bool SoundOn { get; private set; }
 
+    /// <summary>True while the mouse is over the visible panel, so the game can ignore clicks meant for it.</summary>
+    public static bool PointerOverPanel
+    {
+        get
+        {
+            TrainingHud hud = Instance;
+            Mouse mouse = Mouse.current;
+            if (hud == null || !hud.Visible || hud.headless || mouse == null)
+                return false;
+            // Mouse positions start at the bottom left, GUI rectangles at the top left.
+            Vector2 position = mouse.position.ReadValue();
+            return hud.panelScreenRect.Contains(new Vector2(position.x, Screen.height - position.y));
+        }
+    }
+
     readonly GUIContent smallerLabel = new GUIContent("A-", "Diminui o painel");
     readonly GUIContent largerLabel = new GUIContent("A+", "Aumenta o painel");
     readonly GUIContent connectedLabel = new GUIContent("Treinador conectado (?)",
         "O mlagents-learn está conectado e o agente está aprendendo. Cada decisão vira experiência para o treino.");
     readonly GUIContent inferenceLabel = new GUIContent("Inferência (sem treinador) (?)",
         "Nenhum treinador conectado. O agente só usa o modelo que já foi treinado e não aprende nada novo.");
-    readonly GUIContent stepsLabel = new GUIContent("Passos (?)",
-        "Passos da simulação desde que o jogo abriu. O terminal do treino conta só os passos em que o agente decide, por isso mostra um número menor.");
+    readonly GUIContent decisionStepsLabel = new GUIContent("Passos (?)",
+        "Decisões tomadas pelo agente. É o mesmo número que o treinador mostra como Step.");
+    readonly GUIContent simulationStepsLabel = new GUIContent("Passos (?)",
+        "Passos da simulação desde que o jogo abriu.");
     readonly GUIContent episodesLabel = new GUIContent("Episódios (?)",
         "Episódios que já terminaram desde que o jogo abriu. Um episódio acaba quando o agente morre ou atinge o limite de passos.");
     readonly GUIContent scoreLabel = new GUIContent("Pontuação (?)",
@@ -87,6 +111,8 @@ public class TrainingHud : MonoBehaviour
         "Soma das recompensas deste episódio até agora. É esse número que o treino tenta aumentar.");
     readonly GUIContent meanLabel = new GUIContent("Média (últimos 20) (?)",
         "Média da recompensa final dos últimos 20 episódios. Se ela sobe com o tempo, o agente está aprendendo.");
+    readonly GUIContent tensorBoardLabel = new GUIContent("Recompensas: veja o TensorBoard (?)",
+        "Este agente encerra os próprios episódios, então o painel não vê a recompensa final de cada um. As curvas de recompensa estão no TensorBoard.");
     readonly GUIContent chartLabel = new GUIContent("Últimos 50 episódios (?)",
         "Cada barra é a recompensa final de um episódio, do mais antigo (esquerda) ao mais novo (direita). Para cima é positiva, para baixo é negativa.");
     readonly GUIContent speedLabel = new GUIContent("Velocidade (?)",
@@ -119,16 +145,24 @@ public class TrainingHud : MonoBehaviour
     bool searchPending = true;
     float nextSearch;
     int completedEpisodes;
+    int lastAgentStep;
     float currentReward;
+    // 0 when the agent has no DecisionRequester.
+    int decisionPeriod;
+    int lastTotalSteps;
+    // Set once the tracked agent ends its own episodes, whose final reward the panel cannot see.
+    bool rewardsUnknown;
 
     bool hasScore;
     int score;
     int bestScore;
 
-    bool soundDecided;
+    bool academyReady;
+    float windowRecheckAt;
     bool headless;
     bool connected;
     float nextRefresh;
+    Rect panelScreenRect;
     NumberFormatInfo numberFormat;
     Texture2D whiteTexture;
     GUIStyle labelStyle;
@@ -188,7 +222,7 @@ public class TrainingHud : MonoBehaviour
         SoundOn = on;
         PlayerPrefs.SetInt(SoundKey, on ? 1 : 0);
         PlayerPrefs.Save();
-        if (soundDecided)
+        if (academyReady)
             AudioListener.volume = on ? 1f : 0f;
     }
 
@@ -217,7 +251,7 @@ public class TrainingHud : MonoBehaviour
 
         // The first scene finished loading before this object existed.
         hasScore = FindAnyObjectByType<ScoreManagerScript>() != null;
-        DecideSound();
+        OnAcademyReady();
     }
 
     void OnEnable()
@@ -259,8 +293,18 @@ public class TrainingHud : MonoBehaviour
                 SetUiScale(UiScale + UiScaleStep);
         }
 
-        if (!soundDecided)
-            DecideSound();
+        if (!academyReady)
+        {
+            OnAcademyReady();
+        }
+        else if (windowRecheckAt > 0f && Time.realtimeSinceStartup >= windowRecheckAt)
+        {
+            windowRecheckAt = 0f;
+            CheckWindow();
+        }
+        // Academy.Instance would create an Academy if none exists, so check first.
+        if (Academy.IsInitialized)
+            lastTotalSteps = Academy.Instance.TotalStepCount;
 
         TrackAgent();
 
@@ -278,18 +322,56 @@ public class TrainingHud : MonoBehaviour
         }
     }
 
-    // Applies the saved sound preference once, without a trainer only. Academy.IsInitialized turns true
-    // after the trainer handshake, so IsCommunicatorOn is final here. Under a trainer the volume is left
-    // to the guard in FlappyScript.Start().
+    // Runs once, as soon as the Academy exists. Academy.IsInitialized turns true only after the trainer
+    // handshake, which also applies the trainer's engine settings (time scale, window size), so
+    // IsCommunicatorOn is final here.
+    void OnAcademyReady()
+    {
+        if (!Academy.IsInitialized)
+            return;
+        academyReady = true;
+        DecideSound();
+        CheckWindow();
+        windowRecheckAt = Time.realtimeSinceStartup + WindowRecheckDelay;
+    }
+
+    // Applies the saved sound preference without a trainer only. Under a trainer the volume is left to
+    // the guard in FlappyScript.Start().
     void DecideSound()
     {
-        if (soundDecided || !Academy.IsInitialized)
-            return;
-        soundDecided = true;
         if (Academy.Instance.IsCommunicatorOn)
             return;
         AudioListener.volume = SoundOn ? 1f : 0f;
         Debug.Log(SoundOn ? "TrainingHud: sound on" : "TrainingHud: sound off by default");
+    }
+
+    // Screen.SetResolution takes effect at the end of the frame, so the trainer's size shows up only
+    // after the handshake frame; the second check a second later catches it. Headless runs have no window.
+    void CheckWindow()
+    {
+        if (headless || Application.isEditor)
+            return;
+        int width = Screen.width;
+        int height = Screen.height;
+        if (width >= MinWindowWidth && height >= MinWindowHeight)
+        {
+            Debug.Log("TrainingHud: window " + width + "x" + height);
+            return;
+        }
+        Screen.SetResolution(WindowWidth, WindowHeight, FullScreenMode.Windowed);
+        Debug.Log("TrainingHud: window " + width + "x" + height + ", set to " + WindowWidth + "x" + WindowHeight);
+    }
+
+    void OnApplicationQuit()
+    {
+        if (academyReady)
+            Debug.Log("TrainingHud: Passos " + ShownSteps() + " at quit (" + lastTotalSteps + " simulation steps, decision period " + decisionPeriod + ")");
+    }
+
+    // The trainer's Step counts decisions, the Academy counts simulation steps.
+    int ShownSteps()
+    {
+        return decisionPeriod > 0 ? lastTotalSteps / decisionPeriod : lastTotalSteps;
     }
 
     void TrackAgent()
@@ -314,16 +396,25 @@ public class TrainingHud : MonoBehaviour
                 return;
             tracking = true;
             completedEpisodes = agent.CompletedEpisodes;
+            lastAgentStep = agent.StepCount;
+            var requester = agent.GetComponent<DecisionRequester>();
+            decisionPeriod = requester != null ? Mathf.Max(1, requester.DecisionPeriod) : 0;
         }
 
         int completed = agent.CompletedEpisodes;
         if (completed > completedEpisodes)
         {
-            // EndEpisode or MaxStep already reset the agent's reward; the last frame's sample stands in.
+            // A living agent finished an episode, and its reward is already reset. Within one frame of
+            // MaxStep that is the step limit, and the last frame's sample stands in for the final reward.
+            // Anywhere else the agent called EndEpisode in the same step that gave the final reward.
+            int stepsPerFrame = Mathf.CeilToInt(Time.maximumDeltaTime / Time.fixedDeltaTime) + 1;
+            if (agent.MaxStep <= 0 || lastAgentStep + stepsPerFrame < agent.MaxStep)
+                rewardsUnknown = true;
             RecordEpisodeEnd(completed - completedEpisodes);
             completedEpisodes = completed;
         }
         currentReward = agent.GetCumulativeReward();
+        lastAgentStep = agent.StepCount;
     }
 
     void RecordEpisodeEnd(int episodes)
@@ -350,10 +441,8 @@ public class TrainingHud : MonoBehaviour
 
     void RefreshTexts()
     {
-        // Academy.Instance would create an Academy if none exists, so check first.
-        bool academyReady = Academy.IsInitialized;
-        connected = academyReady && Academy.Instance.IsCommunicatorOn;
-        stepsText.Set(academyReady ? Academy.Instance.TotalStepCount : 0, numberFormat);
+        connected = Academy.IsInitialized && Academy.Instance.IsCommunicatorOn;
+        stepsText.Set(ShownSteps(), numberFormat);
         episodesText.Set(EpisodesSeen, numberFormat);
         scoreText.Set(score, numberFormat);
         bestScoreText.Set(bestScore, numberFormat);
@@ -365,10 +454,10 @@ public class TrainingHud : MonoBehaviour
     // Height of the panel in layout units; must match the rows drawn in OnGUI.
     float PanelHeight()
     {
-        int statRows = hasScore ? 6 : 4;
-        return 2f * Padding + TitleHeight + RowHeight + Gap + statRows * RowHeight + Gap + RowHeight
-            + ChartHeight + Gap + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap
-            + FooterHeight;
+        int statRows = 2 + (hasScore ? 2 : 0) + (rewardsUnknown ? 1 : 2);
+        float chart = rewardsUnknown ? 0f : RowHeight + ChartHeight + Gap;
+        return 2f * Padding + TitleHeight + RowHeight + Gap + statRows * RowHeight + Gap + chart
+            + RowHeight + SliderHeight + Gap + ButtonHeight + Gap + ButtonHeight + Gap + FooterHeight;
     }
 
     void OnGUI()
@@ -384,6 +473,7 @@ public class TrainingHud : MonoBehaviour
         // The user's multiplier never lets the panel grow past the screen height.
         float scale = Mathf.Min(screenHeight / ReferenceHeight * UiScale, screenHeight / (panelHeight + 2f * PanelY));
         GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+        panelScreenRect = new Rect(PanelX * scale, PanelY * scale, PanelWidth * scale, panelHeight * scale);
 
         float x = PanelX + Padding;
         float width = PanelWidth - 2f * Padding;
@@ -403,21 +493,28 @@ public class TrainingHud : MonoBehaviour
         GUI.Label(new Rect(x + 16f, y, width - 16f, RowHeight), connected ? connectedLabel : inferenceLabel, labelStyle);
         y += RowHeight + Gap;
 
-        y = DrawRow(x, y, width, stepsLabel, stepsText.Text);
+        y = DrawRow(x, y, width, decisionPeriod > 0 ? decisionStepsLabel : simulationStepsLabel, stepsText.Text);
         y = DrawRow(x, y, width, episodesLabel, episodesText.Text);
         if (hasScore)
         {
             y = DrawRow(x, y, width, scoreLabel, scoreText.Text);
             y = DrawRow(x, y, width, bestScoreLabel, bestScoreText.Text);
         }
-        y = DrawRow(x, y, width, rewardLabel, tracking ? rewardText.Text : NoData);
-        y = DrawRow(x, y, width, meanLabel, rewardCount > 0 ? meanText.Text : NoData);
-        y += Gap;
-
-        GUI.Label(new Rect(x, y, width, RowHeight), chartLabel, labelStyle);
-        y += RowHeight;
-        DrawChart(new Rect(x, y, width, ChartHeight));
-        y += ChartHeight + Gap;
+        if (rewardsUnknown)
+        {
+            GUI.Label(new Rect(x, y, width, RowHeight), tensorBoardLabel, labelStyle);
+            y += RowHeight + Gap;
+        }
+        else
+        {
+            y = DrawRow(x, y, width, rewardLabel, tracking ? rewardText.Text : NoData);
+            y = DrawRow(x, y, width, meanLabel, rewardCount > 0 ? meanText.Text : NoData);
+            y += Gap;
+            GUI.Label(new Rect(x, y, width, RowHeight), chartLabel, labelStyle);
+            y += RowHeight;
+            DrawChart(new Rect(x, y, width, ChartHeight));
+            y += ChartHeight + Gap;
+        }
 
         y = DrawRow(x, y, width, speedLabel, speedText.Text);
         // GUI.changed is only set by user input, so the trainer's time scale is never overwritten on its own.

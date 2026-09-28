@@ -164,8 +164,9 @@ public class FlappyScript : MonoBehaviour
 
     public bool WasTouchedOrClicked()
     {
-        if (Input.GetButtonUp("Jump") || Input.GetMouseButtonDown(0) ||
-            (Input.touchCount > 0 && Input.touches[0].phase == TouchPhase.Ended))
+        // Clicks and touches on the training panel are meant for the panel, not for a jump.
+        if (Input.GetButtonUp("Jump") || (!TrainingHud.PointerOverPanel && (Input.GetMouseButtonDown(0) ||
+            (Input.touchCount > 0 && Input.touches[0].phase == TouchPhase.Ended))))
             return true;
         else
             return false;
