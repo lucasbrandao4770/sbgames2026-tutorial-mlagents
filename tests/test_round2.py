@@ -824,9 +824,6 @@ def test_r4_a_launch_is_refused_while_a_process_is_tracked(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="N2/G1-U-6: find_configs lists all seven YAML files, in path order"
-)
 def test_r5_treinar_list_offers_the_three_module_configs_in_module_order(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
