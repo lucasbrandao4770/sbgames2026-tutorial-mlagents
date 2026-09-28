@@ -267,10 +267,12 @@ def test_b2_selecting_each_documented_config_applies_its_own_default(
         gui.container.destroy()
 
 
-def test_b2_custom_run_name_survives_switching_to_another_config(
+def test_b2_switching_to_another_config_restores_its_defaults_after_a_typed_name(
     tk_root: tk.Tk, tmp_path: Path
 ) -> None:
-    """B2: a name the attendee already typed is not clobbered by a later config change."""
+    """G1-P-5: after a typed name, choosing another config sets that config's own run name
+    and game window default (the rule of gate G1, which replaced B2's "keep the typed
+    name")."""
     repo_root = _repo_with_configs(tmp_path)
     gui = _build_app(tk_root, repo_root)
     tk_root.update()
@@ -281,8 +283,8 @@ def test_b2_custom_run_name_survives_switching_to_another_config(
         gui.run_name_var.set("meu_treino")  # the attendee typed a name by hand
         gui.config_var.set(_label_for(gui, "FlappyBird_desafio.yaml"))
         gui._on_config_selected()
-        assert gui.run_name_var.get() == "meu_treino"
-        assert gui.show_window_var.get() is True  # desafio's own default (False) must not apply
+        assert gui.run_name_var.get() == "ppo2"
+        assert gui.show_window_var.get() is False  # desafio's own default applies
     finally:
         gui.container.destroy()
 

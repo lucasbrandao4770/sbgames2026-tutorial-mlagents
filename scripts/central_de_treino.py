@@ -1135,8 +1135,6 @@ class CentralDeTreinoApp:
         self._stopped_by_time_limit: bool = False
         self._launched_at: float = 0.0
         self._closing: bool = False
-        self._run_name_is_custom: bool = False
-        self._setting_run_name_programmatically: bool = False
         self._build_path: Path | None = None
         self._tensorboard_proc: subprocess.Popen | None = None
         self._poll_job: str | None = None
@@ -1332,27 +1330,21 @@ class CentralDeTreinoApp:
             self._on_config_selected()
 
     def _on_config_selected(self, *_args: object) -> None:
-        """Apply the newly selected config's doc default run name/window (B2).
+        """Apply the newly selected config's doc default run name and window box (B2).
 
-        Never overwrites a name the attendee already typed by hand (tracked via
-        _run_name_is_custom): switching configs to look something up should not
-        silently discard a name someone is in the middle of choosing.
+        R2 (G1-P-5, G1-U-3): always, even after a typed name or "Usar outro nome", so
+        each module gets the name and window its docs and slides use. A name typed
+        after choosing the config stays until the config changes again.
         """
         config = self._selected_config()
-        if config is not None and not self._run_name_is_custom:
+        if config is not None:
             run_name, show_window = default_run_settings_for_config(config)
-            self._setting_run_name_programmatically = True
-            try:
-                self.run_name_var.set(run_name)
-            finally:
-                self._setting_run_name_programmatically = False
+            self.run_name_var.set(run_name)
             self.show_window_var.set(show_window)
         self._update_command_preview()
 
     def _on_run_name_written(self, *_args: object) -> None:
-        """Track attendee edits to the run name field, to gate B2's auto-fill."""
-        if not self._setting_run_name_programmatically:
-            self._run_name_is_custom = True
+        """Keep the command preview in step with the run name field."""
         self._update_command_preview()
 
     def _refresh_build_choice(self) -> None:
@@ -1543,13 +1535,8 @@ class CentralDeTreinoApp:
                 force = action == "force"
                 if action == "rename":
                     # Reflect the chosen name back into the field, so the attendee
-                    # sees what is about to run and it survives switching configs.
-                    self._setting_run_name_programmatically = True
-                    try:
-                        self.run_name_var.set(run_name)
-                    finally:
-                        self._setting_run_name_programmatically = False
-                    self._run_name_is_custom = True
+                    # sees what is about to run.
+                    self.run_name_var.set(run_name)
             display_args = build_train_command(
                 repo_root=self.repo_root,
                 config=config,

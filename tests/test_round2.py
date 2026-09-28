@@ -638,10 +638,6 @@ def test_r1_time_limit_during_a_stop_sends_no_second_request_nor_rearms_the_forc
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-5/G1-U-3: a typed name sets _run_name_is_custom, so name and box stay stale",
-)
 @pytest.mark.parametrize("typed", ["meu_treino", "ppo1"])
 @pytest.mark.parametrize(
     ("start", "target"),
@@ -668,10 +664,6 @@ def test_r2_another_config_after_a_typed_name_restores_its_defaults(
     assert _name_and_box(gui) == MODULE_DEFAULTS[target]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-5/G1-U-3: 'Usar outro nome' sets _run_name_is_custom, so name and box stay stale",
-)
 def test_r2_another_config_after_usar_outro_nome_restores_its_defaults(
     make_app: Callable[[Path], Harness], conflict_dialogs: ConflictDialogs, tmp_path: Path
 ) -> None:
