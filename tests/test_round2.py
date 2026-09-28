@@ -874,17 +874,9 @@ def test_r6_a_slow_stop_points_to_forcar_parada_when_it_becomes_available(
 @pytest.mark.parametrize(
     "typed",
     [
-        pytest.param(
-            "inf",
-            marks=pytest.mark.xfail(
-                strict=True, reason="m9: int(inf * 60_000) raises after the watch started"
-            ),
-        ),
+        "inf",
         "nan",
-        pytest.param(
-            "1e9",
-            marks=pytest.mark.xfail(strict=True, reason="m9: no upper bound, 1e9 minutes is used"),
-        ),
+        "1e9",
         "0",
         "-5",
         "",
@@ -924,7 +916,6 @@ def test_r7_time_limit_never_raises_and_stays_between_1_and_60_minutes(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="G1-U-9: the preview falls back to ppo1 for an empty name")
 def test_r8_an_empty_name_gives_an_empty_command_preview(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
@@ -937,9 +928,22 @@ def test_r8_an_empty_name_gives_an_empty_command_preview(
     assert harness.gui.command_var.get() == ""
 
 
-@pytest.mark.xfail(
-    strict=True, reason="G1-U-9: an empty name gets 'Nome do treino inválido', not 'missing'"
-)
+@pytest.mark.parametrize("name", ["Assistir", "ASSISTIR", "Reference"])
+def test_r8_reserved_names_are_refused_in_any_letter_case(
+    make_app: Callable[[Path], Harness], boxes: MessageBoxes, tmp_path: Path, name: str
+) -> None:
+    """G1-W-5: Windows folders ignore letter case, so "Assistir" is the folder that every
+    watch overwrites and "Reference" the tutorial's bundled runs: Iniciar refuses both."""
+    harness = make_app(_make_repo(tmp_path))
+    _type_run_name(harness.gui, name)
+
+    harness.gui.on_start()
+
+    assert harness.started == []
+    assert len(boxes.shown) == 1, boxes.shown
+    assert "reservado" in boxes.shown[0][1], boxes.shown[0][1]
+
+
 def test_r8_iniciar_with_an_empty_name_says_the_name_is_missing(
     make_app: Callable[[Path], Harness], boxes: MessageBoxes, tmp_path: Path
 ) -> None:

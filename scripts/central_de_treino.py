@@ -254,8 +254,15 @@ def is_valid_run_name(name: str) -> bool:
 
 
 def run_exists(repo_root: Path, run_name: str) -> bool:
-    """True when results/<run_name> already exists (mlagents-learn would refuse it)."""
-    return (repo_root / "results" / run_name).is_dir()
+    """True when results/<run_name> already exists (mlagents-learn would refuse it).
+
+    G1-W-5: in any letter case, because Windows folders ignore it: "PPO1" is ppo1.
+    """
+    results_dir = repo_root / "results"
+    if not results_dir.is_dir():
+        return False
+    wanted = run_name.lower()
+    return any(entry.name.lower() == wanted and entry.is_dir() for entry in results_dir.iterdir())
 
 
 def default_run_settings_for_config(config_path: Path) -> tuple[str, bool]:
@@ -290,7 +297,7 @@ def next_available_run_name(repo_root: Path, run_name: str) -> str:
     base = lettered.group(1) if lettered else run_name
     for letter in "bcdefghijklmnopqrstuvwxyz":
         candidate = f"{base}{letter}"
-        if not run_exists(repo_root, candidate) and candidate not in reserved:
+        if not run_exists(repo_root, candidate) and candidate.lower() not in reserved:
             return candidate
     # All 25 letters taken: numbered names, which no tutorial name looks like.
     n = 2
@@ -1439,8 +1446,12 @@ class CentralDeTreinoApp:
         return self._runs_by_label.get(self.watch_run_var.get())
 
     def _time_limit_minutes(self) -> float:
+        """The watch time limit, always within the field's 1 to 60 minutes (m9).
+
+        A clamp, not a check: "inf" or "1e9" typed by hand gives 60, and "nan" gives 1.
+        """
         try:
-            return max(1.0, float(self.time_limit_var.get()))
+            return min(60.0, max(1.0, float(self.time_limit_var.get())))
         except ValueError:
             return float(WATCH_DEFAULT_TIME_LIMIT_MIN)
 
@@ -1486,9 +1497,9 @@ class CentralDeTreinoApp:
     def _build_preview_train_command(self) -> list[str] | None:
         config = self._selected_config()
         build = self._build_path
-        if config is None or build is None:
-            return None
-        run_name = self.run_name_var.get().strip() or DEFAULT_RUN_NAME
+        run_name = self.run_name_var.get().strip()
+        if config is None or build is None or not run_name:
+            return None  # G1-U-9: no name, no command (not one with ppo1 in it)
         return build_train_command(
             repo_root=self.repo_root,
             config=config,
@@ -1537,14 +1548,17 @@ class CentralDeTreinoApp:
             if config is None:
                 raise LauncherError("Nenhuma configuração encontrada em python/configs/.")
             run_name = self.run_name_var.get().strip()
+            if not run_name:
+                raise LauncherError("Digite um nome para o treino.")  # G1-U-9
             if not is_valid_run_name(run_name):
                 raise LauncherError(
                     "Nome do treino inválido: use só letras, números, _ e -, sem espaços."
                 )
-            if run_name in (WATCH_RUN_ID, "reference"):
+            if run_name.lower() in (WATCH_RUN_ID, "reference"):
                 # m5: both are reserved by this app (assistir_*.yaml configs live
                 # under results/.central_de_treino/, and results/reference/ ships
                 # the tutorial's bundled runs) - training into either would collide.
+                # G1-W-5: in any letter case, as Windows folders ignore it.
                 raise LauncherError(
                     f'"{run_name}" é reservado pelo Central de treino; escolha outro nome.'
                 )

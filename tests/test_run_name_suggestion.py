@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -68,6 +69,29 @@ def test_suggestion_for_a_name_without_digits(repo: Path) -> None:
     app = _load_app()
     _make_run(repo, "meu_treino")
     assert app.next_available_run_name(repo, "meu_treino") == "meu_treinob"
+
+
+def test_an_existing_run_is_found_in_any_letter_case(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G1-W-5: Windows folders ignore letter case, so with results/ppo1 in place "PPO1"
+    already exists, even on a file system that tells the two apart (simulated here by an
+    is_dir that matches the exact name only)."""
+    app = _load_app()
+    _make_run(repo, "ppo1")
+    results = repo / "results"
+    real_is_dir = Path.is_dir
+
+    def _case_sensitive_is_dir(self: Path) -> bool:
+        if self.parent == results:
+            return self.name in os.listdir(results) and real_is_dir(self)
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", _case_sensitive_is_dir)
+    assert app.run_exists(repo, "PPO1") is True
+    assert app.run_exists(repo, "ppo1") is True
+    assert app.run_exists(repo, "ppo2") is False
+    assert app.next_available_run_name(repo, "PPO1") not in {"PPO1", "ppo1"}
 
 
 def test_suggestion_is_never_a_default_name_of_the_tutorial(repo: Path) -> None:
