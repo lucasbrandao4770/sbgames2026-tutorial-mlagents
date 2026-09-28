@@ -43,6 +43,15 @@ public class FlappyScript : MonoBehaviour
         GameStateManager.GameState = GameState.Playing;
         IntroGUI.SetActive(false);
         DeathGUI.SetActive(false);
+
+        // Training runs at time scale 20 and would play every clip 20x faster, so mute the game while a trainer is connected.
+        // Inference (no trainer) keeps the audio.
+        // The volume is global and survives the scene reload after each death, so the volume check mutes and logs once per run.
+        if (Unity.MLAgents.Academy.Instance.IsCommunicatorOn && AudioListener.volume > 0f)
+        {
+            AudioListener.volume = 0f;
+            Debug.Log("FlappyBird: trainer connected, audio muted.");
+        }
     }
 
     // Update is called once per frame

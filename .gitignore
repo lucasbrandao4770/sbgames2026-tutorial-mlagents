@@ -440,4 +440,5 @@ http-client.private.env.json
 # mlagents-learn output when run from python/.
 /python/results/
 # Generated ML-Agents telemetry, written under any Unity project folder.
-unity/**/Assets/ML-Agents/Timers/
+unity/**/Assets/ML-Agents/
+unity/**/Assets/ML-Agents.meta
