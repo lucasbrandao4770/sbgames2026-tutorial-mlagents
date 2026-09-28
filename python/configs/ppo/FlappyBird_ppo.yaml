@@ -1,34 +1,60 @@
+# Cada bloco abaixo de behaviors configura o treino de um Behavior Name específico do projeto Unity.
 behaviors:
+  # Nome do Behavior configurado no componente Behavior Parameters do GameObject do Flappy.
+  # Precisa ser idêntico ao nome no Unity, senão o treinador não encontra o agente.
   FlappyAgent:
+    # Algoritmo de treino: PPO (Proximal Policy Optimization), o padrão do ML-Agents.
     trainer_type: ppo
 
+    # Hiperparâmetros do treino: os comuns a todos os algoritmos e os específicos do PPO.
     hyperparameters:
+      # Quantas amostras entram em cada passo do gradiente (cada minilote do buffer).
       batch_size: 256
+      # Quantas amostras de experiência são coletadas antes de cada atualização.
       buffer_size: 1024
+      # Taxa de aprendizado: o quanto o modelo muda a cada atualização.
       learning_rate: 3.0e-4
+      # Faz a learning_rate cair linearmente até perto de zero ao longo do treino.
       learning_rate_schedule: linear
 
       # PPO-specific hyperparameters
+      # Incentivo à exploração: valores maiores levam o agente a experimentar ações menos óbvias.
       beta: 5.0e-4
+      # Limite de quanto a política pode mudar a cada atualização, o "P" de PPO.
       epsilon: 0.2
+      # Parâmetro do cálculo de vantagem (GAE): equilibra viés e variância na estimativa de cada ação.
       lambd: 0.99
+      # Quantas vezes o buffer inteiro é percorrido a cada atualização.
       num_epoch: 3
 
     # Configuration of the neural network
+    # Configuração da rede neural que representa a política do agente.
     network_settings:
+      # Se true, normaliza as observações antes de entrar na rede.
       normalize: false
+      # Quantos neurônios cada camada da rede tem.
       hidden_units: 128
+      # Quantas camadas escondidas a rede tem.
       num_layers: 2
 
     # Trainer configurations common to all trainers
+    # Total de passos de treino: ao bater esse número, o treinador para sozinho e exporta o .onnx final.
     max_steps: 50000
+    # Passos considerados de uma vez no cálculo de vantagem, antes de "cortar" o trecho para o treino.
     time_horizon: 200
+    # A cada quantos passos o treinador escreve um resumo (aparece no console e no TensorBoard).
     summary_freq: 2000
+    # Quantos checkpoints (modelos intermediários) o treinador guarda ao longo do treino.
     keep_checkpoints: 5
+    # A cada quantos passos um checkpoint intermediário é salvo em disco.
     checkpoint_interval: 10000
 
+    # Fontes de recompensa usadas no treino.
     reward_signals:
       # environment reward (default)
+      # Recompensa extrínseca: a que o próprio script do agente fornece via AddReward.
       extrinsic:
+        # Peso da recompensa extrínseca na recompensa total usada para treinar.
         strength: 0.1
+        # Fator de desconto: o quanto recompensas futuras valem menos que recompensas imediatas.
         gamma: 0.99
