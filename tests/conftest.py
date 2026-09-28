@@ -21,10 +21,13 @@ import socket as socket_module
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tkinter as tk
 import webbrowser
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from tkinter import commondialog
 from typing import NoReturn
 
 import pytest
@@ -185,6 +188,33 @@ def _check_no_leftover_processes(processes: list[subprocess.Popen]) -> None:
         _violate("leftover-process-guard", f"still running at teardown: pid(s) {pids}")
 
 
+THREAD_JOIN_TIMEOUT_S = 3.0
+
+
+def _join_threads_started_since(before: set[threading.Thread], timeout: float) -> None:
+    """Teardown step: wait for every thread the test started, while the guards still apply.
+
+    G1-T-5: an app thread (on_verify_env's run(), the TensorBoard probe, a
+    ManagedProcess reader) can outlive the test body. Joined here, a guard violation
+    it raises is recorded before _guard_teardown checks, so it fails the test that
+    started the thread, never the next test and never nobody, and it can never run
+    the real call after monkeypatch has removed the guards. A thread still running
+    after `timeout` is itself recorded as a violation, for the same reasons.
+    A standalone function so tests/test_guards_more.py can call it directly.
+    """
+    deadline = time.monotonic() + timeout
+    current = threading.current_thread()
+    started = [t for t in threading.enumerate() if t not in before and t is not current]
+    for thread in started:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    alive = [thread.name for thread in started if thread.is_alive()]
+    if alive:
+        _GUARD_VIOLATIONS.append(
+            f"thread-guard: thread(s) still running {timeout:.0f} s after the test: "
+            + ", ".join(alive)
+        )
+
+
 @pytest.fixture(autouse=True)
 def _guard_teardown() -> Iterator[None]:
     """Resets guard state for this test, then enforces it once the test is done.
@@ -192,10 +222,14 @@ def _guard_teardown() -> Iterator[None]:
     Runs after the test function itself (including any of its own `finally:`
     cleanup) has already executed, so a test that reaps its own process before
     returning - as every existing process-starting test does - is not flagged.
+    It runs before monkeypatch undoes the guards (monkeypatch is set up first, by
+    _default_base_port), so the threads joined here still run under the guards.
     """
     _GUARD_VIOLATIONS.clear()
     _LIVE_PROCESSES.clear()
+    threads_before = set(threading.enumerate())
     yield
+    _join_threads_started_since(threads_before, THREAD_JOIN_TIMEOUT_S)
     _check_no_leftover_processes(_LIVE_PROCESSES)
     if _GUARD_VIOLATIONS:
         pytest.fail("; ".join(_GUARD_VIOLATIONS))
@@ -210,6 +244,16 @@ def _deny_deiconify(self: tk.Wm, *_args: object, **_kwargs: object) -> NoReturn:
 
 def _deny_wait_visibility(self: tk.Misc, *_args: object, **_kwargs: object) -> NoReturn:
     _violate("window-guard", f"{type(self).__name__}.wait_visibility() called")
+
+
+_REAL_WM_STATE = tk.Wm.wm_state
+
+
+def _guard_wm_state(self: tk.Wm, newstate: str | None = None) -> str:
+    """wm_state()/state() may still query, or withdraw; any other state shows the window."""
+    if newstate is None or newstate == "withdrawn":
+        return _REAL_WM_STATE(self, newstate)
+    _violate("window-guard", f"{type(self).__name__}.wm_state({newstate!r}) called")
 
 
 def _on_toplevel_mapped(event: tk.Event) -> None:
@@ -244,10 +288,35 @@ def _window_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     GUI test in test_central_de_treino.py already does, so this guard never sees
     a real Toplevel to begin with.
     """
+    # G1-T-6: deiconify and state are aliases defined once in tkinter, so the wm_*
+    # names need their own patch.
     monkeypatch.setattr(tk.Wm, "deiconify", _deny_deiconify)
+    monkeypatch.setattr(tk.Wm, "wm_deiconify", _deny_deiconify)
+    monkeypatch.setattr(tk.Wm, "state", _guard_wm_state)
+    monkeypatch.setattr(tk.Wm, "wm_state", _guard_wm_state)
     monkeypatch.setattr(tk.Misc, "wait_visibility", _deny_wait_visibility)
     monkeypatch.setattr(tk.Toplevel, "__init__", _guard_new_toplevel(tk.Toplevel.__init__))
     monkeypatch.setattr(tk.Tk, "__init__", _guard_new_toplevel(tk.Tk.__init__))
+
+
+# -- native dialog guard ------------------------------------------------------
+
+
+def _deny_native_dialog(self: commondialog.Dialog, **_options: object) -> NoReturn:
+    _violate("dialog-guard", f"{type(self).__name__}.show() would open a native dialog")
+
+
+@pytest.fixture(autouse=True)
+def _native_dialog_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may open a native dialog (G1-T-6).
+
+    Every tkinter.filedialog function (askopenfilename, the one on_browse_build
+    uses, asksaveasfilename, askdirectory, ...) and tkinter.colorchooser end in
+    tkinter.commondialog.Dialog.show(), patched here; so does any messagebox
+    function no_real_dialogs does not stub. A test that reaches on_browse_build
+    stubs app.filedialog.askopenfilename itself.
+    """
+    monkeypatch.setattr(commondialog.Dialog, "show", _deny_native_dialog)
 
 
 # -- browser guard --------------------------------------------------------
