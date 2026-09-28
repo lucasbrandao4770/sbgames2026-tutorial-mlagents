@@ -299,6 +299,73 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 23cf5b59a4f17df4b87f8ac12f8f17be, type: 3}
+--- !u!1 &1194338542 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6371630973971375000, guid: 23cf5b59a4f17df4b87f8ac12f8f17be,
+    type: 3}
+  m_PrefabInstance: {fileID: 1194338541}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1 &1268000669
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1268000670}
+  - component: {fileID: 1268000671}
+  - component: {fileID: 1268000672}
+  m_Layer: 0
+  m_Name: AreaReplicator
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1268000670
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1268000669}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1268000671
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1268000669}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7fc26c3bda6fe4937b2264ffe43190b7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Areas.TrainingAreaReplicator
+  baseArea: {fileID: 1194338542}
+  numAreas: 1
+  separation: 20
+  buildOnly: 1
+--- !u!114 &1268000672
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1268000669}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1c60ded15307486383d93e665f789d0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AreaCountApplier
 --- !u!1001 &1502457254
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -553,3 +620,4 @@ SceneRoots:
   - {fileID: 1502457254}
   - {fileID: 1889211228}
   - {fileID: 1194338541}
+  - {fileID: 1268000670}
