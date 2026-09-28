@@ -676,6 +676,7 @@ def _posix_popen(args: list[str], cwd: Path, python_bin: Path) -> subprocess.Pop
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        errors="replace",  # m7: a bad byte must not kill the reader thread
         bufsize=1,
         start_new_session=True,
     )
@@ -767,6 +768,7 @@ def _windows_popen(args: list[str], cwd: Path) -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        errors="replace",  # m7: a bad byte must not kill the reader thread
         bufsize=1,
         creationflags=subprocess.CREATE_NEW_CONSOLE,
         startupinfo=startupinfo,

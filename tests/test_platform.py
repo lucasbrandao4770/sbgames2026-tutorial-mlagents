@@ -373,16 +373,6 @@ def test_m8_probe_targets_127_0_0_1_not_localhost(monkeypatch: pytest.MonkeyPatc
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "m7: _posix_popen (scripts/central_de_treino.py:640-648) uses text=True "
-        "with no errors=, so decoding defaults to strict; readline() raises "
-        "UnicodeDecodeError on the bad line inside _read_output's for loop "
-        "(central_de_treino.py:828), which has no try/except, so the reader "
-        "thread dies right there and every later line is lost."
-    ),
-)
 def test_m7_reader_thread_survives_undecodable_bytes(tmp_path: Path) -> None:
     """m7: a line invalid in the pipe's encoding must not kill the reader
     thread; later, valid lines must still arrive and the process end must
@@ -429,14 +419,6 @@ class _StubPopenHandle:
         return 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "m7: neither _posix_popen (central_de_treino.py:640-648) nor "
-        "_windows_popen (:731-740) passes errors= to subprocess.Popen; "
-        "captured kwargs['errors'] is None, not 'replace', on both paths."
-    ),
-)
 def test_m7_launch_passes_errors_replace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """m7: text=True with no errors= defaults to "strict"; both the POSIX and
     the Windows launch call must pass errors="replace" so an undecodable byte
