@@ -2160,6 +2160,27 @@ def tcl_tk_failure_message(exc: BaseException) -> str:
     )
 
 
+def report_startup_failure(root: tk.Tk, repo_root: Path, exc: BaseException) -> None:
+    """S1 (G1-W-3): log a failure while main() builds the window, and show it in a Tk
+    message box. Under pythonw there is no console, so nothing else would show it."""
+    message = "Ocorreu um erro inesperado ao abrir a Central de treino."
+    try:
+        log_path = write_error_log(repo_root, "abrir a Central de treino", exc)
+        message += (
+            " Mostre o caminho abaixo a quem estiver ajudando.\n\n"
+            f"{_display_path(repo_root, log_path)}"
+        )
+    except OSError:
+        message += f"\n\nDetalhe técnico: {exc}"
+    print(message, file=sys.stderr)  # a no-op under pythonw, where sys.stderr is None
+    try:
+        root.withdraw()
+        messagebox.showerror("Central de treino", message, parent=root)
+        root.destroy()
+    except Exception:  # noqa: BLE001, S110 - last resort: the process exits right after
+        pass
+
+
 def main() -> None:
     """Entry point: build the real Tk window and run the event loop."""
     ensure_tcl_tk_discoverable()
@@ -2172,16 +2193,20 @@ def main() -> None:
         # exit specifically so this stays on screen and can be copied.
         print(tcl_tk_failure_message(exc), file=sys.stderr)
         sys.exit(1)
-    root.title("Central de treino")
-    # m19: fit small screens (1366x768 at 125% scaling is about 1093x614 for Tk) and
-    # keep 900x680 where it fits. The position has its own call, made first: a later
-    # size-only geometry() keeps it.
-    width = min(900, root.winfo_screenwidth() - 40)
-    height = min(680, root.winfo_screenheight() - 110)
-    root.geometry("+10+10")
-    root.geometry(f"{width}x{height}")
-    root.minsize(min(760, width), min(560, height))
-    app = CentralDeTreinoApp(root, repo_root=repo_root)
+    try:
+        root.title("Central de treino")
+        # m19: fit small screens (1366x768 at 125% scaling is about 1093x614 for Tk)
+        # and keep 900x680 where it fits. The position has its own call, made first:
+        # a later size-only geometry() keeps it.
+        width = min(900, root.winfo_screenwidth() - 40)
+        height = min(680, root.winfo_screenheight() - 110)
+        root.geometry("+10+10")
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(760, width), min(560, height))
+        app = CentralDeTreinoApp(root, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001 - S1: any failure here must reach the user
+        report_startup_failure(root, repo_root, exc)
+        sys.exit(1)
 
     def _report_callback_exception(
         exc_type: type[BaseException], exc: BaseException, tb: object

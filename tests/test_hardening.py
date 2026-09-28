@@ -513,3 +513,79 @@ def test_h1_callback_exception_reaches_unexpected_error_path(
         tk_root.protocol("WM_DELETE_WINDOW", lambda: None)
         for gui in built:
             gui.container.destroy()
+
+
+# ----------------------------------------------------------------------------
+# S1 (G1-W-3): a startup that fails says so, in a Tk message box, and exits nonzero.
+# ----------------------------------------------------------------------------
+
+
+class _StartupRoot:
+    """Stands in for tk.Tk() in main(): records what main() asks of the window, so no
+    real window is ever created or mapped."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def title(self, _text: str) -> None:
+        self.calls.append("title")
+
+    def geometry(self, _spec: str) -> None:
+        self.calls.append("geometry")
+
+    def minsize(self, _width: int, _height: int) -> None:
+        self.calls.append("minsize")
+
+    def winfo_screenwidth(self) -> int:
+        return 1920
+
+    def winfo_screenheight(self) -> int:
+        return 1080
+
+    def withdraw(self) -> None:
+        self.calls.append("withdraw")
+
+    def destroy(self) -> None:
+        self.calls.append("destroy")
+
+    def protocol(self, _name: str, _handler: object) -> None:
+        self.calls.append("protocol")
+
+    def mainloop(self) -> None:
+        self.calls.append("mainloop")
+
+
+def test_s1_a_failed_startup_is_logged_shown_in_a_message_box_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """G1-W-3: an exception raised while main() builds the app is written to the error
+    log and shown in a Tk message box that names the log, and the process exits with a
+    nonzero code without entering mainloop. Under pythonw nothing else would show it."""
+    repo = _minimal_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    root = _StartupRoot()
+    monkeypatch.setattr(app, "ensure_tcl_tk_discoverable", lambda: None)
+    monkeypatch.setattr(app.tk, "Tk", lambda: root)
+
+    def _broken_app(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("s1-startup-boom")
+
+    monkeypatch.setattr(app, "CentralDeTreinoApp", _broken_app)
+    shown: list[tuple[str, str]] = []
+
+    def _record_showerror(title: str = "", message: str = "", **_kwargs: object) -> str:
+        shown.append((title, message))
+        return "ok"
+
+    monkeypatch.setattr(app.messagebox, "showerror", _record_showerror)
+
+    with pytest.raises(SystemExit) as exit_info:
+        app.main()
+
+    assert exit_info.value.code not in (0, None), exit_info.value.code
+    logs = sorted((repo / "results").glob("central_de_treino_erro_*.log"))
+    assert len(logs) == 1, logs
+    assert "s1-startup-boom" in logs[0].read_text(encoding="utf-8")
+    assert len(shown) == 1, shown
+    assert logs[0].name in shown[0][1], shown[0][1]
+    assert "mainloop" not in root.calls, root.calls
