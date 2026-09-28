@@ -1508,11 +1508,23 @@ class CentralDeTreinoApp:
     # -- ações: iniciar / parar -------------------------------------------
 
     def on_start(self) -> None:
-        """Dispatch Start to the training or watch flow, per the active tab."""
-        if self._current_tab() == "treinar":
-            self._start_training()
-        else:
-            self._start_watch()
+        """Dispatch Start to the training or watch flow, per the active tab.
+
+        R4 (G1-P-3, G1-U-12): never a second trainer. A call while one is tracked does
+        nothing, and Iniciar is off until the start ends, so the second click of a
+        double click cannot land while the name conflict dialog opens.
+        """
+        if self._process is not None:
+            return
+        self.start_button.state(["disabled"])
+        try:
+            if self._current_tab() == "treinar":
+                self._start_training()
+            else:
+                self._start_watch()
+        finally:
+            if self._process is None:
+                self.start_button.state(["!disabled"])
 
     def _start_training(self) -> None:
         try:

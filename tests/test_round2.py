@@ -777,10 +777,6 @@ def test_r3_conflict_with_a_saved_model_first_offers_the_name_plus_a_letter(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-3/G1-U-12: Iniciar stays enabled during the dialog: a second trainer starts",
-)
 def test_r4_second_iniciar_while_the_conflict_dialog_is_open_starts_nothing(
     make_app: Callable[[Path], Harness], conflict_dialogs: ConflictDialogs, tmp_path: Path
 ) -> None:
@@ -805,9 +801,6 @@ def test_r4_second_iniciar_while_the_conflict_dialog_is_open_starts_nothing(
     assert harness.started[0].stop_requests == 1, "Parar does not reach the running trainer"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="G1-P-3: _launch overwrites self._process without checking it"
-)
 def test_r4_a_launch_is_refused_while_a_process_is_tracked(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
