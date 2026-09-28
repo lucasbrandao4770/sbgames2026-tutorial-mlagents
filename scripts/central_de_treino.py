@@ -52,6 +52,9 @@ DOC_DEFAULT_RUN_SETTINGS: dict[str, tuple[str, bool]] = {
     "FlappyBird_run1.yaml": ("il1", False),
     "FlappyBird_desafio.yaml": ("ppo2", False),
 }
+# Run names the tutorial's docs and slides use for steps that have no default above
+# (the second and third imitation runs). Never suggested as an alternative name.
+RESERVED_RUN_NAMES: frozenset[str] = frozenset({"il2", "il3"})
 
 WATCH_RUN_ID = "assistir"
 # Fica sob results/ (já ignorado pelo git, exceto results/reference/), nunca dentro do
@@ -236,16 +239,19 @@ def default_run_settings_for_config(config_path: Path) -> tuple[str, bool]:
 
 
 def next_available_run_name(repo_root: Path, run_name: str) -> str:
-    """Return the first "<base><N>" (N starting at 2) that isn't an existing run.
+    """Return the first "<base><N>" (N starting at 2) that is free and not reserved.
 
-    Used to suggest a safe alternative in the run-name conflict dialog, e.g.
-    ppo1 -> ppo2, or ppo2 -> ppo3 if ppo2 is also taken, so accepting it can
-    never collide with (and therefore never risks damaging) an existing run.
+    Used to suggest a safe alternative in the run-name conflict dialog, so
+    accepting it can never collide with (and therefore never risks damaging) an
+    existing run. Names the tutorial gives to its own steps are skipped too:
+    ppo1 -> ppo3, never ppo2, which is the name of the Module 3 run.
     """
+    reserved = {name for name, _show_window in DOC_DEFAULT_RUN_SETTINGS.values()}
+    reserved.update(RESERVED_RUN_NAMES)
     base = re.sub(r"\d+$", "", run_name) or run_name
     n = 2
     candidate = f"{base}{n}"
-    while run_exists(repo_root, candidate):
+    while run_exists(repo_root, candidate) or candidate in reserved:
         n += 1
         candidate = f"{base}{n}"
     return candidate
