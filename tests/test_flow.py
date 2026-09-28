@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -47,14 +47,7 @@ def no_real_dialogs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str
     return calls
 
 
-@pytest.fixture(scope="module")
-def tk_root() -> Iterator[tk.Tk]:
-    """One withdrawn Tk() for the whole module, like the real app's single root."""
-    app.ensure_tcl_tk_discoverable()
-    root = tk.Tk()
-    root.withdraw()
-    yield root
-    root.destroy()
+# tk_root comes from tests/conftest.py: one withdrawn Tk root for the whole session.
 
 
 # ----------------------------------------------------------------------------

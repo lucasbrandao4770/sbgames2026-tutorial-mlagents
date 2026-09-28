@@ -202,21 +202,10 @@ def dialogs(monkeypatch: pytest.MonkeyPatch) -> DialogStub:
     return stub
 
 
-@pytest.fixture(scope="module")
-def tk_root() -> Iterator[tk.Tk]:
-    """One withdrawn Tk root for the module, like the app's single root in main().
-
-    A second tk.Tk() per process is fragile on macOS, and on this Tk (8.6.12, Aqua) a
-    Text widget that logs inside a never-mapped withdrawn Toplevel makes update() spin
-    forever, so the app is built on this root and its destroy() is recorded instead.
-    """
-    app.ensure_tcl_tk_discoverable()
-    root = tk.Tk()
-    root.withdraw()
-    # Safety net: a Tcl background error goes to stderr, never to Tk's error dialog.
-    root.tk.eval('proc bgerror {message} {puts stderr "bgerror: $message"}')
-    yield root
-    root.destroy()
+# tk_root comes from tests/conftest.py: one withdrawn Tk root for the whole session. A
+# second tk.Tk() per process is fragile on macOS, and on this Tk (8.6.12, Aqua) a Text
+# widget that logs inside a never-mapped withdrawn Toplevel makes update() spin forever,
+# so the app is built on that root and its destroy() is recorded instead.
 
 
 @dataclass
@@ -240,7 +229,7 @@ def closing_root(tk_root: tk.Tk) -> Iterator[ClosingRoot]:
     try:
         yield closing
     finally:
-        del tk_root.destroy  # back to the real Tk.destroy for the module teardown
+        del tk_root.destroy  # back to the real Tk.destroy for the session teardown
         for job in tk_root.tk.splitlist(tk_root.tk.call("after", "info")):
             tk_root.tk.call("after", "cancel", job)
         for child in list(tk_root.winfo_children()):

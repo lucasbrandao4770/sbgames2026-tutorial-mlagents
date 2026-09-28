@@ -19,7 +19,6 @@ import sys
 import threading
 import time
 import tkinter as tk
-from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,14 +59,7 @@ def no_real_browser(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app.webbrowser, "open", lambda *a, **k: None)
 
 
-@pytest.fixture(scope="module")
-def tk_root() -> Iterator[tk.Tk]:
-    """One withdrawn Tk() reused by every App-driving test below, like main()'s own."""
-    app.ensure_tcl_tk_discoverable()
-    root = tk.Tk()
-    root.withdraw()
-    yield root
-    root.destroy()
+# tk_root comes from tests/conftest.py: one withdrawn Tk root for the whole session.
 
 
 def _stop_and_destroy(gui: app.CentralDeTreinoApp, tk_root: tk.Tk) -> None:

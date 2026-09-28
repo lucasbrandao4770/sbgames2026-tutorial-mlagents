@@ -114,19 +114,21 @@ def repo_root(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def tk_root() -> Iterator[tk.Tk]:
-    # One Tk() for the whole module, reused by every test below, exactly like the
-    # real app: main() creates exactly one root for its whole life. Creating and
-    # destroying a *second* tk.Tk() in the same process was observed to break
-    # Aqua Tk's after()/event processing for it on macOS (update() blocks
-    # indefinitely) - a test-harness pitfall, not a production one, since
-    # production never creates a second root. Each test below builds its own
-    # CentralDeTreinoApp on this shared root and destroys gui.container - not
-    # the root - at the end.
+    # One Tk() for the whole test session, shared by every test file, exactly like
+    # the real app: main() creates exactly one root for its whole life. Creating
+    # a *second* tk.Tk() in the same process, even after the first one was
+    # destroyed, was observed to break Aqua Tk's after()/event processing on macOS
+    # (update() blocks indefinitely) - a test-harness pitfall, not a production
+    # one, since production never creates a second root. So no test file creates
+    # its own root: each test builds its own CentralDeTreinoApp on this shared
+    # root and destroys gui.container - not the root - at the end.
     app.ensure_tcl_tk_discoverable()
     root = tk.Tk()
     root.withdraw()
+    # Safety net: a Tcl background error goes to stderr, never to Tk's error dialog.
+    root.tk.eval('proc bgerror {message} {puts stderr "bgerror: $message"}')
     yield root
     root.destroy()
 

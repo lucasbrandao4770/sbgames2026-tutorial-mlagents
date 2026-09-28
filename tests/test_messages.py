@@ -17,7 +17,7 @@ import re
 import sys
 import time
 import tkinter as tk
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import ttk
 
@@ -63,16 +63,9 @@ def stub_messagebox(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str
     return calls
 
 
-@pytest.fixture(scope="module")
-def tk_root() -> Iterator[tk.Tk]:
-    # One Tk() for the whole module, reused by every test, matching main()'s own
-    # lifetime (one root, ever). Each test builds its own CentralDeTreinoApp on
-    # this shared root and destroys gui.container (not the root) at the end.
-    app.ensure_tcl_tk_discoverable()
-    root = tk.Tk()
-    root.withdraw()
-    yield root
-    root.destroy()
+# tk_root comes from tests/conftest.py: one withdrawn Tk root for the whole session,
+# matching main()'s own lifetime (one root, ever). Each test builds its own
+# CentralDeTreinoApp on that shared root and destroys gui.container (not the root).
 
 
 _MINIMAL_CONFIG = (
