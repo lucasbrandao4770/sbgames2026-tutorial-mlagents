@@ -23,4 +23,20 @@ if not exist "%PYTHONW%" (
     exit /b 1
 )
 
+rem m3: pythonw has no console to show a missing Tcl/Tk error on; check with
+rem python.exe here first, so a failure can be reported before that happens.
+set "PYTHON=%DIR%.venv\Scripts\python.exe"
+"%PYTHON%" -c "import tkinter, yaml; tkinter.Tcl()" >nul 2>&1
+if errorlevel 1 goto :tcltk_falhou
+
 start "Central de treino" "%PYTHONW%" "%DIR%scripts\central_de_treino.py"
+exit /b 0
+
+:tcltk_falhou
+echo ==============================================================
+echo Não consegui preparar o ambiente Python para abrir a Central.
+echo Reinstale o Python pelo instalador do python.org, com a opção
+echo tcl/tk marcada, seguindo docs\00-instalacao.md.
+echo ==============================================================
+pause
+exit /b 1

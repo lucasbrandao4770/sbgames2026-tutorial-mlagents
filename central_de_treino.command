@@ -22,6 +22,8 @@ if [ ! -x "$PYTHON_BIN" ]; then
     exit 1
 fi
 
+echo "Não feche esta janela enquanto a Central de treino estiver aberta."
+
 "$PYTHON_BIN" scripts/central_de_treino.py
 STATUS=$?
 
