@@ -1890,30 +1890,46 @@ class CentralDeTreinoApp:
             self._show_unexpected_error("abrir a pasta de resultados", exc)
 
     def on_tensorboard(self) -> None:
-        """Open TensorBoard in the browser, starting it first if needed."""
-        if self._tensorboard_proc is not None and self._tensorboard_proc.poll() is None:
-            # m8: already starting or already running; a second click must not
-            # launch a second TensorBoard and drop the handle to the first one.
-            return
-        if is_tensorboard_up():
+        """Open TensorBoard in the browser, starting it first if needed.
+
+        H7: every click leaves a line in the log area at once. H5: the first check
+        is the raw 127.0.0.1 TCP probe the later checks use too, never urlopen. It
+        runs here, on the Tk thread, because the click must decide at once, and the
+        probe's 0.25 s timeout bounds it.
+        """
+        if _tensorboard_port_open():
+            # H6: already up (ours or another one): every click opens the page again.
+            self._tensorboard_status("O TensorBoard já está aberto. Abrindo a página no navegador.")
             webbrowser.open(TENSORBOARD_URL)
+            return
+        if self._tensorboard_proc is not None and self._tensorboard_proc.poll() is None:
+            # m8: still starting; a second click must not launch a second TensorBoard
+            # and drop the handle to the first one. The wait already running opens
+            # the page once it answers, even after its 30 s deadline.
+            self._tensorboard_status(
+                "O TensorBoard ainda está iniciando. "
+                "A página abre sozinha quando ele estiver pronto."
+            )
             return
         try:
             self._tensorboard_proc = start_tensorboard(self.python_bin, self.repo_root)
         except Exception as exc:  # noqa: BLE001
+            self._tensorboard_status("Não consegui iniciar o TensorBoard. Tente o botão de novo.")
             self._show_unexpected_error("abrir o TensorBoard", exc)
             return
-        self._tensorboard_status("Iniciando o TensorBoard...")
+        self._tensorboard_status(
+            "Iniciando o TensorBoard. A página abre sozinha quando ele estiver pronto."
+        )
         self._poll_tensorboard_ready(time.monotonic() + TENSORBOARD_READY_TIMEOUT_S)
 
     def _tensorboard_status(self, text: str) -> None:
-        """Show a TensorBoard progress message, without stepping on an active
+        """Show a TensorBoard progress message in the log area, always (H7), and on
+        the status line only when nothing else runs, so it never steps on an active
         train/watch status (m8: seen replacing a live watch status in evidence).
         """
+        self._append_log(text)
         if self._process is None:
             self.status_var.set(text)
-        else:
-            self._append_log(text)
 
     def _poll_tensorboard_ready(self, deadline: float) -> None:
         if self._tensorboard_proc is not None and self._tensorboard_proc.poll() is not None:
@@ -1925,13 +1941,12 @@ class CentralDeTreinoApp:
             )
             return
         if time.monotonic() >= deadline:
-            self._tensorboard_status("O TensorBoard não respondeu a tempo.")
-            if self._process is None:
-                messagebox.showerror(
-                    "Central de treino",
-                    "O TensorBoard demorou demais para responder. Tente o botão de novo.",
-                )
-            return
+            # H6: slow is not failed. Keep probing while it runs, so the page still
+            # opens by itself, and say so once: an infinite deadline never repeats it.
+            self._tensorboard_status(
+                "O TensorBoard está demorando. A página abre sozinha quando ele estiver pronto."
+            )
+            deadline = float("inf")
 
         def _probe() -> None:
             # M8: the socket probe runs off the Tk thread; only the (cheap)
@@ -1944,7 +1959,7 @@ class CentralDeTreinoApp:
 
     def _on_tensorboard_probe_result(self, up: bool, deadline: float) -> None:
         if up:
-            self._tensorboard_status("TensorBoard pronto.")
+            self._tensorboard_status("TensorBoard pronto. Abrindo a página no navegador.")
             webbrowser.open(TENSORBOARD_URL)
             return
         self.root.after(450, lambda: self._poll_tensorboard_ready(deadline))

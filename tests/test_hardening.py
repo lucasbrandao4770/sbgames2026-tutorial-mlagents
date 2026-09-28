@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -252,14 +253,6 @@ def test_h4_force_stop_uses_create_no_window_and_logs_taskkill_result(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H5: on_tensorboard() (central_de_treino.py:1858) calls is_tensorboard_up(), "
-        "which uses urllib.request.urlopen (:920-931), for the first check instead of "
-        "the raw _tensorboard_port_open TCP probe the later checks use."
-    ),
-)
 def test_h5_first_click_uses_raw_probe_not_urlopen(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -315,14 +308,6 @@ def test_h5_first_click_uses_raw_probe_not_urlopen(
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H6: on_tensorboard()'s first line (central_de_treino.py:1854) returns "
-        "immediately whenever _tensorboard_proc is alive, so a second click never "
-        "reaches webbrowser.open() to reopen the page."
-    ),
-)
 def test_h6_second_click_reopens_page_when_already_running(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -357,19 +342,76 @@ def test_h6_second_click_reopens_page_when_already_running(
         gui.container.destroy()
 
 
+class _InlineThread:
+    """Stands in for threading.Thread inside the app: runs its target at once, on
+    the calling (Tk) thread, so the probe's root.after() hand-back works in a test
+    that drives Tk with update() instead of mainloop()."""
+
+    def __init__(self, target: Callable[[], None], daemon: bool = False) -> None:
+        self._target = target
+
+    def start(self) -> None:
+        self._target()
+
+
+def _pump(tk_root: tk.Tk, seconds: float, until: Callable[[], bool] = lambda: False) -> None:
+    """Process Tk events for up to `seconds`, stopping early once until() is true."""
+    deadline = time.monotonic() + seconds
+    while not until() and time.monotonic() < deadline:
+        tk_root.update()
+        time.sleep(0.02)
+
+
+def test_h6_click_while_still_starting_opens_page_once_when_ready(
+    tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H6: a click while TensorBoard is still starting, here after its 30 s wait
+    already ran out, must not start a second process and must say in the log area
+    that it is still starting; the page must then open, once, when the probe
+    succeeds."""
+    repo = _minimal_repo(tmp_path)
+    gui = app.CentralDeTreinoApp(tk_root, repo_root=repo, python_bin=Path(sys.executable))
+    _mute_error_dialog(gui)
+    port = {"open": False}
+    starts: list[_StubProc] = []
+    browser_calls: list[str] = []
+
+    def _start(*_a: object, **_k: object) -> _StubProc:
+        starts.append(_StubProc(returncode=None))  # alive, not answering yet
+        return starts[-1]
+
+    monkeypatch.setattr(app, "threading", SimpleNamespace(Thread=_InlineThread))
+    monkeypatch.setattr(app, "is_tensorboard_up", lambda *_a, **_k: False)
+    monkeypatch.setattr(app, "_tensorboard_port_open", lambda *_a, **_k: port["open"])
+    monkeypatch.setattr(app, "start_tensorboard", _start)
+    monkeypatch.setattr(app.webbrowser, "open", lambda url, *_a, **_k: browser_calls.append(url))
+    monkeypatch.setattr(app, "TENSORBOARD_READY_TIMEOUT_S", 0.0)  # the wait runs out at once
+    pending_before = set(tk_root.tk.splitlist(tk_root.tk.call("after", "info")))
+    try:
+        tk_root.update()
+        gui.on_tensorboard()
+        assert len(starts) == 1
+        _pump(tk_root, 0.2)
+        gui.on_tensorboard()
+        assert len(starts) == 1, "a click while TensorBoard was starting started another one"
+        assert "ainda está iniciando" in _log_text(gui), _log_text(gui)
+        assert browser_calls == []
+        port["open"] = True
+        _pump(tk_root, 3.0, until=lambda: bool(browser_calls))
+        _pump(tk_root, 0.6)  # a second, duplicate wait would open the page again here
+        assert browser_calls == [app.TENSORBOARD_URL], browser_calls
+    finally:
+        pending = set(tk_root.tk.splitlist(tk_root.tk.call("after", "info")))
+        for job in pending - pending_before:
+            tk_root.after_cancel(job)
+        gui.container.destroy()
+
+
 # ----------------------------------------------------------------------------
 # H7 (priority 7): visible feedback in the LOG AREA for every click.
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H7: _tensorboard_status (central_de_treino.py:1869-1876) routes to "
-        "status_var, not the log area, whenever self._process is None - the idle "
-        "case, which is when a student is most likely to click the button."
-    ),
-)
 def test_h7_start_feedback_reaches_log_area_when_idle(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -395,14 +437,6 @@ def test_h7_start_feedback_reaches_log_area_when_idle(
         gui.container.destroy()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H7: on_tensorboard()'s is_tensorboard_up() branch (central_de_treino.py:"
-        "1858-1860) calls webbrowser.open with no _tensorboard_status/_append_log "
-        "call at all, so an already-running TensorBoard gives zero feedback."
-    ),
-)
 def test_h7_already_running_feedback_reaches_log_area(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -428,14 +462,6 @@ def test_h7_already_running_feedback_reaches_log_area(
         gui.container.destroy()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H7: on_tensorboard()'s except clause (central_de_treino.py:1863-1865) routes "
-        "to _show_unexpected_error's generic message, which names no next step for "
-        "the student to try."
-    ),
-)
 def test_h7_start_failure_feedback_says_what_to_do(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
