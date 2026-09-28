@@ -44,7 +44,8 @@ public class TrainingHud : MonoBehaviour
     const int MinWindowHeight = 360;
     const int WindowWidth = 1024;
     const int WindowHeight = 576;
-    const float WindowRecheckDelay = 1f;
+    const float WindowRecheckInterval = 0.5f;
+    const float WindowRecheckPeriod = 15f;
 
     const int ChartSize = 50;
     const int MeanSize = 20;
@@ -54,7 +55,7 @@ public class TrainingHud : MonoBehaviour
     const float SearchInterval = 0.5f;
     const string SignedFormat = "+0.00;-0.00;0.00";
     const string NoData = "...";
-    const string SoundTooltip = "Liga ou desliga os sons do jogo. Durante o treino o som fica sempre desligado.";
+    const string SoundTooltip = "Liga ou desliga os sons do jogo. Durante o treino, o som fica sempre desligado.";
 
     static readonly Color PanelColor = new Color(0f, 0f, 0f, 0.7f);
     static readonly Color TooltipColor = new Color(0.05f, 0.05f, 0.05f, 0.95f);
@@ -94,17 +95,17 @@ public class TrainingHud : MonoBehaviour
     readonly GUIContent smallerLabel = new GUIContent("A-", "Diminui o painel");
     readonly GUIContent largerLabel = new GUIContent("A+", "Aumenta o painel");
     readonly GUIContent connectedLabel = new GUIContent("Treinador conectado (?)",
-        "O mlagents-learn está conectado e o agente está aprendendo. Cada decisão vira experiência para o treino.");
+        "Um treinador está conectado e controla o agente.");
     readonly GUIContent inferenceLabel = new GUIContent("Inferência (sem treinador) (?)",
         "Nenhum treinador conectado. O agente só usa o modelo que já foi treinado e não aprende nada novo.");
     readonly GUIContent decisionStepsLabel = new GUIContent("Passos (?)",
-        "Decisões tomadas pelo agente. É o mesmo número que o treinador mostra como Step.");
+        "Decisões tomadas pelo agente neste processo. Com um ambiente só, é o mesmo número que o treinador mostra como Step.");
     readonly GUIContent simulationStepsLabel = new GUIContent("Passos (?)",
         "Passos da simulação desde que o jogo abriu.");
     readonly GUIContent episodesLabel = new GUIContent("Episódios (?)",
-        "Episódios que já terminaram desde que o jogo abriu. Um episódio acaba quando o agente morre ou atinge o limite de passos.");
+        "Episódios que já terminaram desde que o jogo abriu. Um episódio acaba quando o agente morre, alcança o objetivo ou atinge o limite de passos.");
     readonly GUIContent scoreLabel = new GUIContent("Pontuação (?)",
-        "Canos que o pássaro passou nesta vida. É o mesmo placar que aparece no jogo.");
+        "Canos que o pássaro ultrapassou nesta vida. É o mesmo placar que aparece no jogo.");
     readonly GUIContent bestScoreLabel = new GUIContent("Melhor pontuação (?)",
         "A maior pontuação de uma vida desde que o jogo abriu.");
     readonly GUIContent rewardLabel = new GUIContent("Recompensa do episódio (?)",
@@ -158,7 +159,11 @@ public class TrainingHud : MonoBehaviour
     int bestScore;
 
     bool academyReady;
+    // Next window recheck in real time, 0 once the recheck period is over.
     float windowRecheckAt;
+    float windowRecheckEnd;
+    // Set by a resize and cleared once the window is large again, so each small window is resized once.
+    bool windowResizeRequested;
     bool headless;
     bool connected;
     float nextRefresh;
@@ -237,9 +242,13 @@ public class TrainingHud : MonoBehaviour
         useGUILayout = false;
         headless = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null;
 
-        whiteTexture = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
-        whiteTexture.SetPixel(0, 0, Color.white);
-        whiteTexture.Apply();
+        // OnGUI never draws without a graphics device, so the texture is only needed with one.
+        if (!headless)
+        {
+            whiteTexture = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+            whiteTexture.SetPixel(0, 0, Color.white);
+            whiteTexture.Apply();
+        }
 
         // PT-BR number style: 12.345 and -1,50.
         numberFormat = (NumberFormatInfo)CultureInfo.InvariantCulture.NumberFormat.Clone();
@@ -299,7 +308,8 @@ public class TrainingHud : MonoBehaviour
         }
         else if (windowRecheckAt > 0f && Time.realtimeSinceStartup >= windowRecheckAt)
         {
-            windowRecheckAt = 0f;
+            float now = Time.realtimeSinceStartup;
+            windowRecheckAt = now < windowRecheckEnd ? now + WindowRecheckInterval : 0f;
             CheckWindow();
         }
         // Academy.Instance would create an Academy if none exists, so check first.
@@ -330,9 +340,16 @@ public class TrainingHud : MonoBehaviour
         if (!Academy.IsInitialized)
             return;
         academyReady = true;
+        Debug.Log("TrainingHud: ready (trainer " + Academy.Instance.IsCommunicatorOn + ", headless " + headless + ")");
         DecideSound();
+        // Headless runs have no window, and the editor's Game view ignores Screen.SetResolution.
+        if (headless || Application.isEditor)
+            return;
+        Debug.Log("TrainingHud: window " + Screen.width + "x" + Screen.height);
         CheckWindow();
-        windowRecheckAt = Time.realtimeSinceStartup + WindowRecheckDelay;
+        float now = Time.realtimeSinceStartup;
+        windowRecheckEnd = now + WindowRecheckPeriod;
+        windowRecheckAt = now + WindowRecheckInterval;
     }
 
     // Applies the saved sound preference without a trainer only. Under a trainer the volume is left to
@@ -342,22 +359,25 @@ public class TrainingHud : MonoBehaviour
         if (Academy.Instance.IsCommunicatorOn)
             return;
         AudioListener.volume = SoundOn ? 1f : 0f;
-        Debug.Log(SoundOn ? "TrainingHud: sound on" : "TrainingHud: sound off by default");
+        string state = SoundOn ? "on" : PlayerPrefs.HasKey(SoundKey) ? "off (saved choice)" : "off by default";
+        Debug.Log("TrainingHud: sound " + state);
     }
 
-    // Screen.SetResolution takes effect at the end of the frame, so the trainer's size shows up only
-    // after the handshake frame; the second check a second later catches it. Headless runs have no window.
+    // The trainer's size request lands during the handshake, but Screen.SetResolution only takes effect at
+    // the end of a frame, and a slow first frame can delay it further; hence the rechecks.
     void CheckWindow()
     {
-        if (headless || Application.isEditor)
-            return;
         int width = Screen.width;
         int height = Screen.height;
         if (width >= MinWindowWidth && height >= MinWindowHeight)
         {
-            Debug.Log("TrainingHud: window " + width + "x" + height);
+            windowResizeRequested = false;
             return;
         }
+        // A resize that has not taken effect yet (or was refused) is not requested again.
+        if (windowResizeRequested)
+            return;
+        windowResizeRequested = true;
         Screen.SetResolution(WindowWidth, WindowHeight, FullScreenMode.Windowed);
         Debug.Log("TrainingHud: window " + width + "x" + height + ", set to " + WindowWidth + "x" + WindowHeight);
     }
@@ -465,6 +485,11 @@ public class TrainingHud : MonoBehaviour
         if (!Visible || headless)
             return;
 
+        // Controls set GUI.tooltip while they are hovered in this Repaint pass, and DrawTooltip reads it at
+        // the end of the same pass; clear the previous pass's value first so it cannot stick.
+        if (Event.current.type == EventType.Repaint)
+            GUI.tooltip = "";
+
         EnsureStyles();
         Matrix4x4 previousMatrix = GUI.matrix;
         Color previousColor = GUI.color;
@@ -542,7 +567,7 @@ public class TrainingHud : MonoBehaviour
         GUI.enabled = wasEnabled;
         y += ButtonHeight + Gap;
 
-        GUI.Label(new Rect(x, y, width, FooterHeight), "H esconde o painel", footerStyle);
+        GUI.Label(new Rect(x, y, width, FooterHeight), "H mostra ou esconde o painel", footerStyle);
 
         DrawTooltip(scale);
         GUI.matrix = previousMatrix;
@@ -574,7 +599,8 @@ public class TrainingHud : MonoBehaviour
             Rect bar = reward >= 0f
                 ? new Rect(left, middle - barHeight, slot - 1f, barHeight)
                 : new Rect(left, middle, slot - 1f, barHeight);
-            Fill(bar, reward >= 0f ? PositiveColor : NegativeColor);
+            // A zero reward is neither green nor red; its 1 px mark sits on the zero line.
+            Fill(bar, reward > 0f ? PositiveColor : reward < 0f ? NegativeColor : ZeroLineColor);
         }
         Fill(new Rect(area.x, middle - 1f, area.width, 2f), ZeroLineColor);
     }
