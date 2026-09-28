@@ -40,6 +40,9 @@ import yaml
 # ----------------------------------------------------------------------------
 
 CONFIGS_GLOB = "python/configs/**/*.yaml"
+# m14: an Editor-only config (behavior "Basic"); the Treinar tab would run it against
+# the FlappyBird build, where mlagents trains FlappyAgent with default settings.
+EXCLUDED_CONFIG_NAMES: frozenset[str] = frozenset({"Basic_ppo.yaml"})
 DEFAULT_CONFIG_RELATIVE = Path("python/configs/ppo/FlappyBird_ppo.yaml")
 DEFAULT_RUN_NAME = "ppo1"
 RUN_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -229,7 +232,8 @@ class TrainerSummary:
 
 def find_configs(repo_root: Path) -> list[Path]:
     """Return every tutorial trainer config, sorted for a stable dropdown order."""
-    return sorted(repo_root.glob(CONFIGS_GLOB))
+    configs = repo_root.glob(CONFIGS_GLOB)
+    return sorted(path for path in configs if path.name not in EXCLUDED_CONFIG_NAMES)
 
 
 def default_config(repo_root: Path) -> Path | None:

@@ -381,14 +381,6 @@ def test_m3_each_run_gets_its_own_watch_config_file(tk_root: tk.Tk, tmp_path: Pa
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "m14 OPEN: find_configs (scripts/central_de_treino.py:201-203) globs every "
-        "python/configs/**/*.yaml with no exclusion, so the Editor-only Basic_ppo.yaml "
-        "is offered in the Treinar dropdown"
-    ),
-)
 def test_m14_treinar_config_list_excludes_basic_ppo(tk_root: tk.Tk, tmp_path: Path) -> None:
     """m14: Basic_ppo.yaml (an Editor-only config, behavior "Basic") must not be offered."""
     repo_root = _repo_with_configs(tmp_path)
