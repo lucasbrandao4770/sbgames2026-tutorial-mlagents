@@ -916,6 +916,48 @@ def test_r6_a_slow_stop_points_to_forcar_parada_when_it_becomes_available(
     assert _points_to_force_stop(gui.status_var.get()), f"status: {gui.status_var.get()!r}"
 
 
+def test_g2a_u16_a_summary_line_after_parar_does_not_replace_parando(
+    make_app: Callable[[Path], Harness], tmp_path: Path
+) -> None:
+    """G2a-U-16: after Parar in a training, a summary line still in flight does not
+    replace "Parando..." with "Passo N/50000 ...", as the watch path already does."""
+    harness = make_app(_make_repo(tmp_path))
+    gui = harness.gui
+    gui.on_start()
+    harness.clock.advance(1_000)
+    gui.on_stop()
+    stopping = gui.status_var.get()
+
+    harness.started[0].output_queue.put(
+        "[INFO] FlappyAgent. Step: 20000. Time Elapsed: 60.123 s. Mean Reward: -1.230. "
+        "Std of Reward: 0.500. Training."
+    )
+    harness.clock.advance(500)
+
+    assert gui.status_var.get() == stopping
+
+
+def test_g2a_u17_forcar_parada_ends_with_a_forced_stop_status_not_an_error(
+    make_app: Callable[[Path], Harness], tmp_path: Path
+) -> None:
+    """G2a-U-17: after Forçar parada in a training, the final status says the training
+    was stopped by force and the model may not have been saved, not that it failed."""
+    harness = make_app(_make_repo(tmp_path))
+    gui = harness.gui
+    gui.on_start()
+    harness.clock.advance(1_000)
+    gui.on_stop()
+    harness.clock.advance(GRACEFUL_STOP_MS)
+
+    gui.force_button.invoke()
+    harness.clock.advance(200)
+
+    assert gui._process is None, "precondition: the run ended"
+    status = gui.status_var.get().lower()
+    assert "força" in status and "salvo" in status, status
+    assert "erro" not in status, status
+
+
 # ----------------------------------------------------------------------------
 # R7: the time limit field (m9)
 # ----------------------------------------------------------------------------

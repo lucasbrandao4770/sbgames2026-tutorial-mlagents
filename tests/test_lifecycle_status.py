@@ -153,6 +153,8 @@ def _status_meaning(status: str) -> str:
     lowered = status.lower()
     if "jogo" in lowered and "fech" in lowered:
         return "game_closed"
+    if "à força" in lowered:
+        return "forced"
     if "salv" in lowered and (".onnx" in lowered or "results/" in lowered):
         return "saved"
     if any(hint in status for hint in _HINTS):
@@ -351,7 +353,8 @@ def test_m1b_stale_model_not_reported_saved_after_force_stop(
 ) -> None:
     """M1: a Continuar run stopped with Parar and then Forçar parada, while an .onnx
     from an earlier session sits in its folder, is not reported as saved and does not
-    read as a normal end. The stand-in ignores SIGINT, so only the kill can end it."""
+    read as a normal end: it reads as a forced stop (G2a-U-17). The stand-in ignores
+    SIGINT, so only the kill can end it."""
     repo = _make_repo(tmp_path)
     _make_stale_model(repo, age_s=2.0)
     spec = ["--until-sigint", "--ignore-sigint"]
@@ -367,7 +370,7 @@ def test_m1b_stale_model_not_reported_saved_after_force_stop(
         gui.force_button.invoke()
         assert _pump_until(tk_root, lambda: _finished(gui))
         status = gui.status_var.get()
-        assert _status_meaning(status) == "error", status
+        assert _status_meaning(status) == "forced", status
 
 
 # ----------------------------------------------------------------------------

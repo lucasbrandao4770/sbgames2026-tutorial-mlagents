@@ -1157,6 +1157,7 @@ class CentralDeTreinoApp:
         self._watch_deadline: float | None = None
         self._stop_requested: bool = False
         self._stopped_by_time_limit: bool = False
+        self._force_stopped: bool = False
         self._launched_at: float = 0.0
         self._closing: bool = False
         self._build_path: Path | None = None
@@ -1711,6 +1712,7 @@ class CentralDeTreinoApp:
         self._watch_deadline = None
         self._stop_requested = False
         self._stopped_by_time_limit = False
+        self._force_stopped = False
         self._closing = False  # G2a-P-4: a close asked for an earlier run is not for this one
         self._launched_at = time.time()
         if self._force_stop_job is not None:
@@ -1746,7 +1748,12 @@ class CentralDeTreinoApp:
                 self._watch_ending = True
                 self.status_var.set("O jogo foi fechado. Encerrando...")
             summary = parse_summary_line(line)
-            if summary is not None and self._mode != "assistir" and not self._watch_ending:
+            if (
+                summary is not None
+                and self._mode != "assistir"
+                and not self._watch_ending
+                and not self._stop_requested  # G2a-U-16: keep "Parando..." on screen
+            ):
                 self._update_status_from_summary(summary)
         if (
             self._mode == "assistir"
@@ -1820,6 +1827,9 @@ class CentralDeTreinoApp:
             if saved:
                 joined = ", ".join(_display_path(self.repo_root, path) for path in saved)
                 self.status_var.set(f"Treino encerrado. Modelo salvo em {joined}.")
+            elif self._force_stopped:
+                # G2a-U-17: the student chose this; it is not an error.
+                self.status_var.set("Treino parado à força. O modelo pode não ter sido salvo.")
             elif hint:
                 self.status_var.set(f"Treino terminou com erro. {hint}")
             elif returncode != 0:
@@ -1905,6 +1915,7 @@ class CentralDeTreinoApp:
         """Kill the process tree immediately; the final model may not be saved."""
         if self._process is None:
             return
+        self._force_stopped = True
         report = self._process.force_kill()
         if report is not None:
             self._append_log(report)  # H4: taskkill's return code
