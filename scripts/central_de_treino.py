@@ -1820,15 +1820,20 @@ class CentralDeTreinoApp:
 
     def _on_watch_time_limit(self) -> None:
         self._watch_time_limit_job = None
-        if self._process is not None and self._mode == "assistir":
-            self._stop_requested = True
+        # R1: a stop already under way (Parar, a close) is left alone. _stop_requested
+        # is set by on_stop() only, so the limit's own request always goes through.
+        if self._process is not None and self._mode == "assistir" and not self._stop_requested:
             self._stopped_by_time_limit = True
             self.status_var.set("Tempo limite atingido, parando...")
             self.on_stop()
 
     def on_stop(self) -> None:
-        """Ask the running process to stop gracefully and arm the force-stop timer."""
-        if self._process is None:
+        """Ask the running process to stop gracefully and arm the force-stop timer.
+
+        R1: once per run, whoever asks first (Parar, a close, the time limit). A second
+        Ctrl+C cuts off the trainer's model export or the game's shutdown.
+        """
+        if self._process is None or self._stop_requested:
             return
         self._stop_requested = True
         self.status_var.set("Parando...")
@@ -2091,6 +2096,11 @@ class CentralDeTreinoApp:
         _finish_process() closes the window once the process actually stops.
         """
         if self._process is not None and self._process.is_running():
+            if self._stop_requested:
+                # R1: a stop is already under way: ask nothing, send nothing, and
+                # close once the process ends (_finish_process checks _closing).
+                self._closing = True
+                return
             if not messagebox.askyesno(
                 "Central de treino", "Um treino está rodando. Parar e fechar?"
             ):

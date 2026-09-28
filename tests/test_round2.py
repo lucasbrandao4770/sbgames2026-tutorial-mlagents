@@ -549,9 +549,6 @@ def _says_name_missing(message: str) -> bool:
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="G1-P-1: on_stop has no guard, a second Parar sends a second stop request"
-)
 def test_r1_parar_twice_sends_one_stop_request(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
@@ -565,10 +562,6 @@ def test_r1_parar_twice_sends_one_stop_request(
     assert [p.stop_requests for p in harness.started] == [1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-1/G1-U-1: a second close during Parando asks again and sends a second stop",
-)
 def test_r1_closing_twice_asks_once_stops_once_and_closes_after_the_end(
     make_app: Callable[[Path], Harness], boxes: MessageBoxes, tmp_path: Path
 ) -> None:
@@ -592,10 +585,6 @@ def test_r1_closing_twice_asks_once_stops_once_and_closes_after_the_end(
     assert harness.destroy_calls == [[]], "the window did not close once the trainer ended"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-1: on_close ignores a stop in progress: it asks and sends a second stop",
-)
 def test_r1_close_after_parar_neither_asks_nor_signals_and_closes_after_the_end(
     make_app: Callable[[Path], Harness], boxes: MessageBoxes, tmp_path: Path
 ) -> None:
@@ -617,10 +606,6 @@ def test_r1_close_after_parar_neither_asks_nor_signals_and_closes_after_the_end(
     assert harness.destroy_calls == [[]], "the window did not close once the trainer ended"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G1-P-1: the time limit calls on_stop during a stop: second request, timer rearmed",
-)
 def test_r1_time_limit_during_a_stop_sends_no_second_request_nor_rearms_the_force_timer(
     make_app: Callable[[Path], Harness], tmp_path: Path
 ) -> None:
