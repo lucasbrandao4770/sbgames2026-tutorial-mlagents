@@ -2073,8 +2073,14 @@ def main() -> None:
         print(tcl_tk_failure_message(exc), file=sys.stderr)
         sys.exit(1)
     root.title("Central de treino")
-    root.geometry("900x680")
-    root.minsize(760, 560)
+    # m19: fit small screens (1366x768 at 125% scaling is about 1093x614 for Tk) and
+    # keep 900x680 where it fits. The position has its own call, made first: a later
+    # size-only geometry() keeps it.
+    width = min(900, root.winfo_screenwidth() - 40)
+    height = min(680, root.winfo_screenheight() - 110)
+    root.geometry("+10+10")
+    root.geometry(f"{width}x{height}")
+    root.minsize(min(760, width), min(560, height))
     app = CentralDeTreinoApp(root, repo_root=repo_root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()

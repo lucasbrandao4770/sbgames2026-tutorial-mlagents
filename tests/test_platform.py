@@ -513,14 +513,6 @@ class _FakeMainRoot:
         pass
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'm19: root.geometry("900x680") in main() (scripts/central_de_treino.py:2030) is a '
-        "hardcoded literal - it never calls winfo_screenwidth()/winfo_screenheight(), so "
-        "height=680 exceeds a 1366x768@125% screen's ~614 Tk-unit work area."
-    ),
-)
 def test_m19_window_geometry_fits_small_screen_and_keeps_default_on_large(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
