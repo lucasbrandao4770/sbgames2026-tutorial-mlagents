@@ -1932,7 +1932,11 @@ class CentralDeTreinoApp:
             f"Erro inesperado ao {context}. Log: {_display_path(self.repo_root, log_path)}"
         )
         self._show_error_dialog(
-            message=f"Ocorreu um erro inesperado ao {context}.", log_path=log_path
+            message=(
+                f"Ocorreu um erro inesperado ao {context}. "
+                "Mostre o caminho abaixo a quem estiver ajudando."
+            ),
+            log_path=log_path,
         )
 
     def _show_error_dialog(self, *, message: str, log_path: Path) -> None:
@@ -1944,7 +1948,7 @@ class CentralDeTreinoApp:
         exists specifically so they can.
         """
         dialog = tk.Toplevel(self.root)
-        dialog.title("Central de treino - erro")
+        dialog.title("Erro na Central de treino")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -1953,7 +1957,11 @@ class CentralDeTreinoApp:
             dialog, text=message, justify="left", wraplength=360, padding=(12, 12, 12, 4)
         ).pack(fill="x")
         path_text = _display_path(self.repo_root, log_path)
-        path_entry = ttk.Entry(dialog, textvariable=tk.StringVar(value=path_text), state="readonly")
+        # m1: the text lives in the Entry itself, not in a throwaway StringVar that
+        # the garbage collector frees, which left the field empty.
+        path_entry = ttk.Entry(dialog)
+        path_entry.insert(0, path_text)
+        path_entry.state(["readonly"])
         path_entry.pack(fill="x", padx=12, pady=(0, 8))
 
         def _open_log() -> None:

@@ -111,11 +111,6 @@ def _malformed_desafio_yaml() -> str:
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="m1: the Entry uses an unreferenced tk.StringVar; after gc.collect() it "
-    "renders empty instead of the log path (scripts/central_de_treino.py:1951).",
-)
 def test_m1_error_dialog_entry_shows_log_path(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,11 +181,6 @@ def test_M9_yaml_error_detail_reaches_log_area(tk_root: tk.Tk, tmp_path: Path) -
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='m22: dialog title is still "Central de treino - erro" (spaced hyphen), '
-    'not "Erro na Central de treino" (scripts/central_de_treino.py:1942).',
-)
 def test_m22_error_dialog_title_has_no_spaced_hyphen(
     tk_root: tk.Tk, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -238,11 +228,6 @@ def test_m22_model_saved_status_ends_with_period(tk_root: tk.Tk, tmp_path: Path)
         gui.container.destroy()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="m22: the unexpected-error message does not tell the user what to do "
-    '("Mostre o caminho abaixo a quem estiver ajudando." is missing).',
-)
 def test_m22_unexpected_error_tells_user_what_to_do(tk_root: tk.Tk, tmp_path: Path) -> None:
     """m22: the unexpected-error text tells the user what to do with the path."""
     repo_root = _repo_root(tmp_path)
@@ -304,11 +289,6 @@ def _dash_offenders() -> list[tuple[int, str]]:
     return offenders
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="m22: the scan still finds the dialog title's spaced hyphen "
-    '("Central de treino - erro", scripts/central_de_treino.py:1942).',
-)
 def test_m22_no_dash_characters_in_user_facing_strings() -> None:
     """m22: no U+2013, U+2014 or spaced hyphen used as a dash in a user-facing string."""
     offenders = _dash_offenders()
