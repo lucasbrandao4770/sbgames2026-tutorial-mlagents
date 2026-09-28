@@ -1084,7 +1084,7 @@ def open_results_folder(repo_root: Path, *, system: str | None = None) -> None:
 
 
 def _default_app_command(system: str, path: Path) -> list[str] | None:
-    """Argv to open path in a text editor, or None to signal os.startfile.
+    """Argv to open path in a text editor, or None on Windows (see open_in_default_editor).
 
     -t makes macOS's `open` use the default *text* editor (per `man open`)
     instead of whatever, if anything, claims the .yaml extension: a clean lab
@@ -1100,16 +1100,18 @@ def _default_app_command(system: str, path: Path) -> list[str] | None:
 def open_in_default_editor(path: Path, *, system: str | None = None) -> None:
     """Open path with whatever app the OS associates with its file type.
 
-    M6: a clean lab PC likely has nothing associated with .yaml, which raises
-    on Windows (os.startfile) and silently does nothing on macOS (a plain
-    `open`, no -t, exits 1); fall back to a text editor that is always present.
+    M6: a clean lab PC likely has nothing associated with .yaml, which silently
+    does nothing on macOS (a plain `open`, no -t, exits 1). G1-W-2: on Windows
+    os.startfile then shows the "Como você deseja abrir este arquivo?" picker
+    instead of raising, so Notepad, always present, comes first there, and
+    os.startfile only if Notepad cannot start.
     """
     system = system or platform.system()
     if system == "Windows":
         try:
-            os.startfile(str(path))  # type: ignore[attr-defined]  # Windows-only stdlib call
-        except OSError:
             subprocess.Popen(["notepad.exe", str(path)])
+        except OSError:
+            os.startfile(str(path))  # type: ignore[attr-defined]  # Windows-only stdlib call
         return
     command = _default_app_command(system, path)
     assert command is not None

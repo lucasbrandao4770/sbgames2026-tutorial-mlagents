@@ -211,10 +211,13 @@ def test_m7_watch_status_leaves_iniciando_on_main_process_line(
 # ----------------------------------------------------------------------------
 
 
-def test_m6_windows_startfile_success_does_not_fall_back_to_notepad(
+def test_m6_windows_opens_notepad_directly_not_startfile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """M6: when os.startfile succeeds on Windows, notepad.exe must not also launch."""
+    """G1-W-2: on Windows, "Editar arquivo" opens the file in notepad.exe directly.
+    os.startfile on a PC with no program for .yaml shows the "Como você deseja abrir
+    este arquivo?" picker instead of raising, so it must not be tried first.
+    """
     config = tmp_path / "FlappyBird_desafio.yaml"
     config.write_text("behaviors: {}\n")
     startfile_calls: list[str] = []
@@ -224,27 +227,30 @@ def test_m6_windows_startfile_success_does_not_fall_back_to_notepad(
     popen_calls: list[list[str]] = []
     monkeypatch.setattr(app.subprocess, "Popen", lambda args, **_k: popen_calls.append(args))
     app.open_in_default_editor(config, system="Windows")
-    assert startfile_calls == [str(config)]
-    assert popen_calls == []
+    assert popen_calls == [["notepad.exe", str(config)]]
+    assert startfile_calls == []
 
 
-def test_m6_windows_startfile_oserror_falls_back_to_notepad(
+def test_m6_windows_falls_back_to_startfile_when_notepad_cannot_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """M6: a clean lab PC with no .yaml association raises OSError from
-    os.startfile; the user must land in Notepad, not the unexpected-error dialog.
+    """G1-W-2: only when notepad.exe cannot start does the file go to os.startfile,
+    after the Notepad attempt, and no error reaches the user.
     """
     config = tmp_path / "FlappyBird_desafio.yaml"
     config.write_text("behaviors: {}\n")
+    calls: list[str] = []
 
-    def _raise(_path: str) -> None:
-        raise OSError("no application is associated with this file")
+    def _popen_fails(args: list[str], **_kwargs: object) -> None:
+        calls.append(f"popen {args[0]}")
+        raise FileNotFoundError(2, "The system cannot find the file specified", args[0])
 
-    monkeypatch.setattr(app.os, "startfile", _raise, raising=False)
-    popen_calls: list[list[str]] = []
-    monkeypatch.setattr(app.subprocess, "Popen", lambda args, **_k: popen_calls.append(args))
+    monkeypatch.setattr(app.subprocess, "Popen", _popen_fails)
+    monkeypatch.setattr(
+        app.os, "startfile", lambda path: calls.append(f"startfile {path}"), raising=False
+    )
     app.open_in_default_editor(config, system="Windows")
-    assert popen_calls == [["notepad.exe", str(config)]]
+    assert calls == ["popen notepad.exe", f"startfile {config}"]
 
 
 def test_m6_macos_opens_default_text_editor_not_plain_open(
