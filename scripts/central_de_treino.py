@@ -1,0 +1,2346 @@
+"""Central de treino: janela Tkinter para o tutorial de Unity ML-Agents.
+
+Roda os mesmos comandos de terminal que o tutorial ensina (treinar, assistir a um modelo
+treinado, abrir o TensorBoard) a partir de uma janela simples, sempre mostrando o comando
+exato que está prestes a rodar. Toda a lógica que não depende de janela (montagem de
+comandos, validação de nomes, busca de configs/builds/runs, leitura do YAML, parsing da
+saída do treinador e o gerenciador de processos) vive em funções e classes puras, sem
+nenhum objeto Tk: a janela só é criada dentro de main().
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import http.client
+import os
+import platform
+import queue
+import re
+import shlex
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import tkinter as tk
+import traceback
+import urllib.error
+import urllib.request
+import webbrowser
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
+import yaml
+
+# ----------------------------------------------------------------------------
+# Constantes
+# ----------------------------------------------------------------------------
+
+CONFIGS_GLOB = "python/configs/**/*.yaml"
+DEFAULT_CONFIG_RELATIVE = Path("python/configs/ppo/FlappyBird_ppo.yaml")
+DEFAULT_RUN_NAME = "ppo1"
+RUN_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# B2: the tutorial's docs use one specific run name (and show/hide the game
+# window) per config, keyed by filename since that is stable regardless of
+# which subfolder under python/configs/ a config lives in.
+DOC_DEFAULT_RUN_SETTINGS: dict[str, tuple[str, bool]] = {
+    "FlappyBird_ppo.yaml": ("ppo1", True),
+    "FlappyBird_run1.yaml": ("il1", False),
+    "FlappyBird_desafio.yaml": ("ppo2", False),
+}
+# Run names the tutorial's docs and slides use for steps that have no default above
+# (the second and third imitation runs). Never suggested as an alternative name.
+RESERVED_RUN_NAMES: frozenset[str] = frozenset({"il2", "il3"})
+
+WATCH_RUN_ID = "assistir"
+# Fica sob results/ (já ignorado pelo git, exceto results/reference/), nunca dentro do
+# próprio run treinado: assim o YAML gerado não conflita com o run original. Um
+# arquivo por run (M3), não um único arquivo compartilhado: veja _watch_config_path.
+WATCH_CONFIG_DIR = Path("results") / ".central_de_treino"
+WATCH_DEFAULT_TIME_LIMIT_MIN = 3
+
+TENSORBOARD_URL = "http://localhost:6006"
+TENSORBOARD_READY_TIMEOUT_S = 30.0
+GRACEFUL_STOP_TIMEOUT_S = 30.0
+
+BASE_PORT_ENV_VAR = "CENTRAL_DE_TREINO_BASE_PORT"
+
+
+def _read_base_port() -> int | None:
+    """Read BASE_PORT_ENV_VAR once; None means "use the trainer's own default"."""
+    raw = os.environ.get(BASE_PORT_ENV_VAR)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+# Read once at import time, not per command: with the variable unset, nothing
+# changes (--base-port is simply never added). Set it to steer every trainer this
+# app launches to a non-default port, e.g. to avoid a port someone else is using.
+BASE_PORT: int | None = _read_base_port()
+
+
+# ----------------------------------------------------------------------------
+# Descoberta de Tcl/Tk: alguns interpretadores Python (por exemplo, um build
+# portátil gerenciado pelo uv) reorganizam os arquivos do Tcl/Tk para fora dos
+# caminhos que o _tkinter procura sozinho, e tk.Tk() falha com "Can't find a
+# usable init.tcl". Deve rodar antes de qualquer objeto Tk ser criado.
+# ----------------------------------------------------------------------------
+
+
+def _find_tcl_tk_library(base_prefix: Path, name: str) -> Path | None:
+    """Find the newest lib/<name>8.* folder under base_prefix that really has its
+    main script file (init.tcl for Tcl, tk.tcl for Tk), without hardcoding a
+    version. Returns None if nothing usable is found.
+    """
+    marker = "init.tcl" if name == "tcl" else "tk.tcl"
+    candidates = sorted((base_prefix / "lib").glob(f"{name}8.*"), reverse=True)
+    for candidate in candidates:
+        if (candidate / marker).is_file():
+            return candidate
+    return None
+
+
+def ensure_tcl_tk_discoverable() -> None:
+    """Set TCL_LIBRARY/TK_LIBRARY when this interpreter cannot find them by itself.
+
+    Only a fallback: does nothing when the two variables are already set (never
+    overrides a value the user set), and looks under sys.base_prefix (the real
+    interpreter behind any venv), not sys.prefix, since a venv does not carry its
+    own copy of Tcl/Tk. Safe to call even when nothing needs fixing. Must run
+    before any Tk object is created, and before anything else that needs Tcl.
+    """
+    base_prefix = Path(sys.base_prefix)
+    if "TCL_LIBRARY" not in os.environ:
+        tcl_dir = _find_tcl_tk_library(base_prefix, "tcl")
+        if tcl_dir is not None:
+            os.environ["TCL_LIBRARY"] = str(tcl_dir)
+    if "TK_LIBRARY" not in os.environ:
+        tk_dir = _find_tcl_tk_library(base_prefix, "tk")
+        if tk_dir is not None:
+            os.environ["TK_LIBRARY"] = str(tk_dir)
+
+
+SUMMARY_LINE_RE = re.compile(
+    r"(?P<behavior>[\w.-]+)\.\s+Step:\s+(?P<step>\d+)\.\s+"
+    r"Time Elapsed:\s+(?P<elapsed>[\d.]+)\s*s\.\s+"
+    r"Mean Reward:\s+(?P<reward>N/A|-?[\d.]+)\.\s+Std of Reward:\s+(?P<std>N/A|-?[\d.]+)\.\s+"
+    r"(?P<state>Not Training|Training)\."
+)
+
+# Trechos conhecidos da saída do mlagents-learn (ver report.md de inference_test) mapeados
+# para uma dica curta em português. returncode != 0 é exigido pelo chamador antes de olhar
+# para o texto.
+_KNOWN_FAILURES: tuple[tuple[str, str], ...] = (
+    (
+        "Previous data from this run ID was not found",
+        "Não há treino salvo com esse nome. Clique em Iniciar e escolha Recomeçar.",
+    ),
+    (
+        "Previous data from this run ID was found",
+        "Já existe um treino salvo com esse nome. Escolha continuar, recomeçar ou outro nome.",
+    ),
+    (
+        "UnityWorkerInUseException",
+        "Outro treino usa a porta do jogo (outra janela da Central ou terminal). Pare-o.",
+    ),
+    (
+        "Couldn't launch",
+        "Não consegui abrir o jogo. Confira o caminho do build.",
+    ),
+    # m13: on Windows mlagents reads the YAML with the locale encoding (cp1252), and
+    # turns this error into a TrainerConfigError, so this entry must come before that one.
+    (
+        "'charmap' codec can't decode",
+        "O treinador não conseguiu ler a configuração. Tire os acentos dos comentários.",
+    ),
+    (
+        "TrainerConfigError",
+        "O arquivo de configuração tem uma opção inválida. Veja o erro no log abaixo.",
+    ),
+    (
+        "UnityTimeOutException",
+        "O jogo demorou demais para responder. Clique em Iniciar de novo.",
+    ),
+    # The end of the FileNotFoundError that torch.load raises when "Continuar" runs on
+    # a training that never saved a checkpoint.
+    (
+        "checkpoint.pt'",
+        "Não há modelo salvo para continuar. Clique em Iniciar e escolha Recomeçar.",
+    ),
+)
+
+
+class LauncherError(Exception):
+    """Erro com uma mensagem curta em português, pronta para mostrar ao usuário."""
+
+    def __init__(self, message: str, detail: str | None = None) -> None:
+        """Store the short user-facing message plus an optional technical detail."""
+        super().__init__(message)
+        self.message = message
+        self.detail = detail
+
+
+@dataclasses.dataclass(frozen=True)
+class TrainedRun:
+    """A results/ folder ready to be watched with --initialize-from."""
+
+    relative_id: str  # valor passado para --initialize-from
+    path: Path
+    behaviors: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class TrainerSummary:
+    """One parsed "Step: N. Mean Reward: X" summary line from the trainer."""
+
+    behavior: str
+    step: int
+    mean_reward: float | None
+    is_training: bool
+
+
+# ----------------------------------------------------------------------------
+# Descoberta e validação
+# ----------------------------------------------------------------------------
+
+
+def find_configs(repo_root: Path) -> list[Path]:
+    """Return the configs of Modules 1, 2 and 3, in module order.
+
+    N2 (G1-U-6): the other files under python/configs/ give a wrong result from the
+    Treinar tab (the Editor-only Basic_ppo.yaml of m14, the imitation runs 2 and 3
+    and the 500k variant without their own run names), so they are not offered.
+    """
+    order = list(DOC_DEFAULT_RUN_SETTINGS)
+    configs = [path for path in repo_root.glob(CONFIGS_GLOB) if path.name in order]
+    return sorted(configs, key=lambda path: (order.index(path.name), str(path)))
+
+
+def default_config(repo_root: Path) -> Path | None:
+    """Return the tutorial's default config, or the first one found, or None."""
+    preferred = repo_root / DEFAULT_CONFIG_RELATIVE
+    if preferred.is_file():
+        return preferred
+    configs = find_configs(repo_root)
+    return configs[0] if configs else None
+
+
+def is_valid_run_name(name: str) -> bool:
+    """A run name must be non-empty and use only letters, digits, _ and -."""
+    return bool(RUN_NAME_RE.match(name))
+
+
+def run_exists(repo_root: Path, run_name: str) -> bool:
+    """True when results/<run_name> already exists (mlagents-learn would refuse it).
+
+    G1-W-5: in any letter case, because Windows folders ignore it: "PPO1" is ppo1.
+    """
+    results_dir = repo_root / "results"
+    if not results_dir.is_dir():
+        return False
+    wanted = run_name.lower()
+    return any(entry.name.lower() == wanted and entry.is_dir() for entry in results_dir.iterdir())
+
+
+def default_run_settings_for_config(config_path: Path) -> tuple[str, bool]:
+    """Return the (run_name, show_window) the docs use for a given trainer config.
+
+    B2: previously the run name field always defaulted to "ppo1" no matter which
+    config was selected, so switching to the imitation or desafio module kept
+    "ppo1" - and, worse, a name conflict against an unrelated ppo1 run offered to
+    resume or overwrite it. Falls back to the config file's stem, lowercased, for
+    any config the docs don't name explicitly (e.g. one an attendee added), and to
+    showing the game window, matching the original default.
+    """
+    settings = DOC_DEFAULT_RUN_SETTINGS.get(config_path.name)
+    if settings is not None:
+        return settings
+    return config_path.stem.lower(), True
+
+
+def next_available_run_name(repo_root: Path, run_name: str) -> str:
+    """Return the name plus the first free letter: ppo1 -> ppo1b, then ppo1c.
+
+    Used to suggest a safe alternative in the run-name conflict dialog, so
+    accepting it can never collide with (and therefore never risks damaging) an
+    existing run. G1-U-4: the suggestion keeps the whole name, so the slides'
+    TensorBoard filter (ppo1|ppo2) still matches it, and it is never a name the
+    tutorial gives to its own steps. A name that already ends in such a letter
+    (ppo1b) goes on from its base (ppo1c), not ppo1bb.
+    """
+    reserved = {name for name, _show_window in DOC_DEFAULT_RUN_SETTINGS.values()}
+    reserved.update(RESERVED_RUN_NAMES)
+    lettered = re.fullmatch(r"(.*\d)[b-z]", run_name)
+    base = lettered.group(1) if lettered else run_name
+    for letter in "bcdefghijklmnopqrstuvwxyz":
+        candidate = f"{base}{letter}"
+        if not run_exists(repo_root, candidate) and candidate.lower() not in reserved:
+            return candidate
+    # All 25 letters taken: numbered names, which no tutorial name looks like.
+    n = 2
+    while run_exists(repo_root, f"{base}_{n}"):
+        n += 1
+    return f"{base}_{n}"
+
+
+def run_has_saved_model(repo_root: Path, run_name: str) -> bool:
+    """True when results/<run_name> holds a model: any .onnx or checkpoint.pt (G1-U-4)."""
+    run_dir = repo_root / "results" / run_name
+    return any(run_dir.rglob("*.onnx")) or any(run_dir.rglob("checkpoint.pt"))
+
+
+def find_build(repo_root: Path, *, system: str | None = None) -> Path | None:
+    """Auto-detect the FlappyBird build under builds/ for the given OS.
+
+    system is injectable so every branch can be unit tested from one machine; it
+    defaults to platform.system() for real use.
+    """
+    system = system or platform.system()
+    builds_dir = repo_root / "builds"
+    if not builds_dir.is_dir():
+        return None
+    if system == "Darwin":
+        candidates = sorted(builds_dir.glob("*.app"))
+        return candidates[0] if candidates else None
+    if system == "Windows":
+        candidates = sorted(
+            path for path in builds_dir.glob("**/*.exe") if "crashhandler" not in path.name.lower()
+        )
+        return candidates[0] if candidates else None
+    # Linux: nenhum build existe neste repositório ainda, então esta busca não foi
+    # verificada contra um build real. Procura um arquivo executável sem extensão.
+    candidates = sorted(
+        path
+        for path in builds_dir.glob("**/*")
+        if path.is_file() and not path.suffix and os.access(path, os.X_OK)
+    )
+    return candidates[0] if candidates else None
+
+
+def _run_behaviors_with_checkpoint(run_dir: Path) -> tuple[str, ...]:
+    """List the behavior subfolders of run_dir that have an exported checkpoint.pt."""
+    if not run_dir.is_dir():
+        return ()
+    behaviors = [
+        child.name
+        for child in sorted(run_dir.iterdir())
+        if child.is_dir() and (child / "checkpoint.pt").is_file()
+    ]
+    return tuple(behaviors)
+
+
+def find_trained_runs(repo_root: Path) -> list[TrainedRun]:
+    """List results/ (and results/reference/) folders ready for --initialize-from.
+
+    A run only qualifies once mlagents-learn has written a <Behavior>/checkpoint.pt.
+    The bundled results/reference/ runs ship only the final .onnx to keep the
+    repository small (see results/reference/README.md), so as shipped none of them
+    currently qualify; this is expected, not a bug (see docs/05).
+    """
+    results_dir = repo_root / "results"
+    if not results_dir.is_dir():
+        return []
+    runs: list[TrainedRun] = []
+    for entry in sorted(results_dir.iterdir()):
+        if not entry.is_dir() or entry.name in ("reference", ".central_de_treino"):
+            continue
+        behaviors = _run_behaviors_with_checkpoint(entry)
+        if behaviors:
+            runs.append(TrainedRun(entry.name, entry, behaviors))
+    reference_dir = results_dir / "reference"
+    if reference_dir.is_dir():
+        for entry in sorted(reference_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            behaviors = _run_behaviors_with_checkpoint(entry)
+            if behaviors:
+                runs.append(TrainedRun(f"reference/{entry.name}", entry, behaviors))
+    return runs
+
+
+# ----------------------------------------------------------------------------
+# YAML: leitura de configs e geração do YAML reduzido para "Assistir"
+# ----------------------------------------------------------------------------
+
+
+def load_yaml(path: Path) -> dict:
+    """Load a YAML file as a dict, raising LauncherError with a short PT-BR message."""
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except OSError as exc:
+        raise LauncherError(f"Não consegui abrir {path.name}.", detail=str(exc)) from exc
+    except yaml.YAMLError as exc:
+        # M9: docs/03 warns that deleting only the "#" (and not the following
+        # space) leaves the YAML broken; without a line number, the attendee has
+        # no way to find that extra space themselves.
+        mark = getattr(exc, "problem_mark", None)
+        where = f" perto da linha {mark.line + 1}" if mark is not None else ""
+        raise LauncherError(
+            f"O arquivo {path.name} tem um erro de formatação{where}. "
+            'Abra com "Editar arquivo" e confira os espaços no começo da linha.',
+            detail=str(exc),
+        ) from exc
+    if not isinstance(data, dict):
+        raise LauncherError(f"O arquivo {path.name} está vazio ou não é uma configuração válida.")
+    return data
+
+
+def read_behaviors(config_path: Path) -> dict:
+    """Return the behaviors mapping of a trainer config, or raise LauncherError."""
+    data = load_yaml(config_path)
+    behaviors = data.get("behaviors")
+    if not isinstance(behaviors, dict) or not behaviors:
+        raise LauncherError(f'{config_path.name} não tem uma seção "behaviors".')
+    return behaviors
+
+
+def read_max_steps(config_path: Path) -> int | None:
+    """Return max_steps of the first behavior in the config, or None if absent.
+
+    The tutorial's own configs always define exactly one behavior (FlappyAgent or
+    Basic), so "the first one" is unambiguous in practice.
+    """
+    for settings in read_behaviors(config_path).values():
+        if isinstance(settings, dict) and isinstance(settings.get("max_steps"), int):
+            return settings["max_steps"]
+    return None
+
+
+def generate_watch_config(trained_run_config: Path, dest: Path) -> None:
+    """Write a minimal YAML with only the behaviors section of a trained run.
+
+    Keeping only behaviors guarantees the saved network architecture matches the
+    checkpoint while dropping every engine/env setting recorded at training time
+    (e.g. no_graphics: true), so watching always opens a window regardless of how
+    the run was originally trained. See docs/05-central-de-treino.md.
+    """
+    behaviors = read_behaviors(trained_run_config)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump({"behaviors": behaviors}, handle, sort_keys=False, allow_unicode=True)
+
+
+# ----------------------------------------------------------------------------
+# Saída do treinador: parsing e diagnóstico
+# ----------------------------------------------------------------------------
+
+
+def parse_summary_line(line: str) -> TrainerSummary | None:
+    """Parse a "Step: N. Time Elapsed: .. Mean Reward: .." line, or return None."""
+    match = SUMMARY_LINE_RE.search(line)
+    if match is None:
+        return None
+    reward_text = match.group("reward")
+    mean_reward = None if reward_text == "N/A" else float(reward_text)
+    return TrainerSummary(
+        behavior=match.group("behavior"),
+        step=int(match.group("step")),
+        mean_reward=mean_reward,
+        is_training=match.group("state") == "Training",
+    )
+
+
+def diagnose_failure(output_lines: Iterable[str], returncode: int) -> str | None:
+    """Match a known mlagents-learn failure in the captured output to a PT-BR hint."""
+    if returncode == 0:
+        return None
+    text = "\n".join(output_lines)
+    for needle, hint in _KNOWN_FAILURES:
+        if needle in text:
+            return hint
+    return None
+
+
+# With --max-lifetime-restarts=0, both a graceful quit and a hard kill of the game
+# print this line before the trainer exits on its own (see inference_test/report.md,
+# Round 4); a hard kill additionally raises UnityEnvironmentException with a
+# nonzero exit code, which is still a normal end here, not a real failure.
+_GAME_CLOSED_MARKER = "exceeded the allowed number of restarts"
+
+
+def watch_ended_by_closing_game(output_lines: Iterable[str]) -> bool:
+    """True when a watch session ended because the attendee closed the game window."""
+    return any(_GAME_CLOSED_MARKER in line for line in output_lines)
+
+
+# The game window is open and the model is playing once this line appears. At
+# --time-scale=1 (real time), the first "Step: N ... Mean Reward: ..." summary
+# line only arrives after summary_freq decisions - about 4 minutes for this
+# tutorial's configs - so the status line cannot wait for one of those instead.
+# M7: not "Connected to Unity environment" - that line is logged inside
+# UnityEnvironment, which CPython 3.10 on Windows spawns via
+# _winapi.CreateProcess with no handle inheritance (multiprocessing's
+# popen_spawn_win32.py), so it most likely never reaches this app's pipe there.
+# "Initializing from" is logged by torch_model_saver.py in the main process
+# instead (every --initialize-from run), which this app's pipe always sees, and
+# it doubles as proof that the right checkpoint loaded.
+_GAME_CONNECTED_MARKER = "Initializing from"
+
+
+def model_output_paths(repo_root: Path, run_name: str, behaviors: Iterable[str]) -> list[Path]:
+    """Return the expected results/<run>/<Behavior>.onnx path for each behavior."""
+    return [repo_root / "results" / run_name / f"{behavior}.onnx" for behavior in behaviors]
+
+
+def existing_model_paths(
+    repo_root: Path, run_name: str, behaviors: Iterable[str], *, saved_since: float | None = None
+) -> list[Path]:
+    """Filter model_output_paths to the ones that actually exist on disk.
+
+    Checking the filesystem, instead of trusting an "Exported ..." log line, is the
+    only way to honestly report where the model was saved. saved_since (an
+    st_mtime, typically the moment this session's process was launched) excludes a
+    stale .onnx left over from an earlier session on the same run name - without
+    it, a failed or force-stopped "Continuar"/"Recomeçar" would read as a normal
+    save because the *old* file is still sitting there.
+    """
+    return [
+        path
+        for path in model_output_paths(repo_root, run_name, behaviors)
+        if path.is_file() and (saved_since is None or path.stat().st_mtime >= saved_since)
+    ]
+
+
+# ----------------------------------------------------------------------------
+# Construção de comandos (forma exibível, igual ao que os docs ensinam)
+# ----------------------------------------------------------------------------
+
+
+def _display_path(repo_root: Path, path: Path) -> str:
+    """Render a path the way the tutorial docs do: relative, with forward slashes."""
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def build_train_command(
+    *,
+    repo_root: Path,
+    config: Path,
+    run_name: str,
+    build: Path,
+    show_window: bool,
+    resume: bool = False,
+    force: bool = False,
+) -> list[str]:
+    """Build the doc-style mlagents-learn command for the "Treinar" tab.
+
+    resume and force are mutually exclusive; the "run already exists" dialog is
+    responsible for only ever setting one of them.
+    """
+    if resume and force:
+        raise LauncherError("Não é possível continuar e recomeçar ao mesmo tempo.")
+    if not is_valid_run_name(run_name):
+        raise LauncherError("Nome do treino inválido: use só letras, números, _ e -, sem espaços.")
+    args = [
+        "mlagents-learn",
+        _display_path(repo_root, config),
+        f"--env={_display_path(repo_root, build)}",
+        f"--run-id={run_name}",
+    ]
+    if BASE_PORT is not None:
+        args.append(f"--base-port={BASE_PORT}")
+    if resume:
+        args.append("--resume")
+    if force:
+        args.append("--force")
+    if not show_window:
+        args.append("--no-graphics")
+    return args
+
+
+def build_watch_command(
+    *,
+    repo_root: Path,
+    watch_config: Path,
+    build: Path,
+    trained_run_id: str,
+) -> list[str]:
+    """Build the doc-style watch command (see inference_test/report.md, Round 4).
+
+    Uses --initialize-from with a fixed, reused --run-id and --force, which never
+    touches the trained run's own folder no matter how many times it is used
+    (verified against a real run, see docs/05-central-de-treino.md).
+    --max-lifetime-restarts=0 makes closing the game end the session by itself
+    instead of ml-agents silently relaunching it as a crashed worker; it must stay
+    off the training command, where the default restart behavior is wanted.
+    """
+    args = [
+        "mlagents-learn",
+        _display_path(repo_root, watch_config),
+        f"--env={_display_path(repo_root, build)}",
+        f"--run-id={WATCH_RUN_ID}",
+    ]
+    if BASE_PORT is not None:
+        args.append(f"--base-port={BASE_PORT}")
+    args.extend(
+        [
+            f"--initialize-from={trained_run_id}",
+            "--inference",
+            "--force",
+            "--time-scale=1",
+            "--capture-frame-rate=0",
+            "--max-lifetime-restarts=0",
+        ]
+    )
+    return args
+
+
+def build_tensorboard_command() -> list[str]:
+    """Build the doc-style TensorBoard command (matches README/docs exactly)."""
+    return ["tensorboard", "--logdir", "results"]
+
+
+# T9c: importing PyTorch alone can take a minute on a cold lab PC; past this the check stops.
+VERIFY_ENV_TIMEOUT_S = 180.0
+
+
+def build_verify_env_command() -> list[str]:
+    """Build the doc-style command to run the environment checker."""
+    return ["python", "scripts/verify_env.py"]
+
+
+def format_command_for_display(args: list[str], *, system: str | None = None) -> str:
+    """Render argv the way a person would type it at a terminal on this OS."""
+    system = system or platform.system()
+    if system == "Windows":
+        return subprocess.list2cmdline(args)
+    return shlex.join(args)
+
+
+def resolve_for_execution(display_args: list[str], python_bin: Path) -> list[str]:
+    """Turn a doc-style display command into a real, absolute argv for Popen.
+
+    Every argument stays identical except argv[0]: the bare command name shown in
+    the UI ("mlagents-learn", "tensorboard", "python") is replaced by the actual
+    binary next to the active interpreter, so the app never depends on the venv
+    being activated on PATH. This keeps "the exact command it runs" honest: the
+    displayed string is exactly what you would type with the environment active.
+    """
+    if not display_args:
+        raise LauncherError("Comando vazio.")
+    program = display_args[0]
+    bin_dir = python_bin.parent
+    if program == "python":
+        resolved = python_bin
+    else:
+        exe_name = program + (".exe" if os.name == "nt" else "")
+        resolved = bin_dir / exe_name
+    if not resolved.is_file():
+        raise LauncherError(
+            f'No laboratório, chame um instrutor. "{program}" não foi encontrado no '
+            f"ambiente virtual ({bin_dir}). Confira a instalação em docs/00-instalacao.md."
+        )
+    return [str(resolved), *display_args[1:]]
+
+
+# ----------------------------------------------------------------------------
+# Gerenciador de processos (treinador e assistir)
+# ----------------------------------------------------------------------------
+
+# A process started in the background of a non-interactive shell (a trailing &)
+# inherits SIGINT set to ignore (POSIX: "the INT and QUIT signals for an
+# asynchronous list shall be set to ignore"). Python then never raises
+# KeyboardInterrupt on it, and mlagents-learn's own stop path relies on exactly
+# that exception (trainer_controller.py catches KeyboardInterrupt around its main
+# loop), so an inherited SIG_IGN would make graceful stop silently do nothing.
+# preexec_fn could reset it but is documented as unsafe in a program with
+# threads (this app has a reader thread per process), so instead the child's
+# first exec is this tiny wrapper, which resets SIGINT to the OS default and
+# then os.execv's the real command - a plain exec, not preexec_fn, so it runs
+# after the fork/exec machinery has already replaced the process image.
+_POSIX_RESET_SIGINT_AND_EXEC = (
+    "import os, signal, sys\n"
+    "signal.signal(signal.SIGINT, signal.SIG_DFL)\n"
+    "os.execv(sys.argv[1], sys.argv[1:])\n"
+)
+
+
+def _posix_wrap_for_sigint_reset(real_args: list[str], python_bin: Path) -> list[str]:
+    """Prefix a resolved argv with the SIGINT-reset wrapper, for POSIX Popen calls."""
+    return [str(python_bin), "-c", _POSIX_RESET_SIGINT_AND_EXEC, *real_args]
+
+
+def _posix_popen(args: list[str], cwd: Path, python_bin: Path) -> subprocess.Popen:
+    """Start a subprocess in its own session so SIGINT can target the whole group.
+
+    A lone SIGINT to the trainer's PID does not stop it (confirmed against a real
+    run, see inference_test/report.md); it has to reach the process group that
+    start_new_session=True creates. args is wrapped with _posix_wrap_for_sigint_reset
+    first, so the child always starts with SIGINT at its OS default regardless of
+    what this process itself inherited.
+    """
+    wrapped = _posix_wrap_for_sigint_reset(args, python_bin)
+    return subprocess.Popen(
+        wrapped,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",  # m7: a bad byte must not kill the reader thread
+        bufsize=1,
+        start_new_session=True,
+    )
+
+
+def _posix_graceful_stop(proc: subprocess.Popen) -> None:
+    """Send SIGINT to the whole process group, mirroring a terminal Ctrl+C."""
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGINT)
+    except ProcessLookupError:
+        pass
+
+
+def _posix_descendants(root_pid: int) -> list[int]:
+    """List every descendant PID of root_pid right now, via ps (stdlib-only).
+
+    mlagents launches the game with its own start_new_session=True
+    (mlagents_envs/env_utils.py), so it leads a *different* session/group than
+    the trainer: os.killpg on the trainer's group never reaches it (M4). Must be
+    called while root_pid is still alive - once it exits, its children are
+    reparented (PPID becomes 1 or a subreaper) and this lineage walk finds
+    nothing, so the caller captures this before killing anything.
+    """
+    ps = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=False
+    )
+    children: dict[int, list[int]] = {}
+    for line in ps.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        pid, ppid = (int(field) for field in fields)
+        children.setdefault(ppid, []).append(pid)
+    found: list[int] = []
+    stack = [root_pid]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            found.append(child)
+            stack.append(child)
+    return found
+
+
+def _posix_force_kill(proc: subprocess.Popen) -> None:
+    """Escalate to SIGTERM then SIGKILL against the whole process group, then
+    SIGKILL any descendant that is still alive afterward (M4: the game, started
+    in its own session, survives a killpg on the trainer's group; a responsive
+    game usually already quit once the trainer's gRPC link dropped, so this
+    sweep is normally a no-op).
+    """
+    descendants = _posix_descendants(proc.pid)  # capture before anything dies
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        pgid = None
+    if pgid is not None:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                break
+            try:
+                proc.wait(timeout=3)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    for pid in descendants:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _windows_popen(args: list[str], cwd: Path) -> subprocess.Popen:
+    """Start the trainer with its own hidden console, WITHOUT a new process group.
+
+    A dedicated console lets the short helper process in _windows_send_ctrl_c
+    attach to it later and deliver Ctrl+C. CREATE_NEW_PROCESS_GROUP is
+    deliberately not used here: per the brief, testing on this project showed the
+    trainer does not react to it. Untested in this sandbox (no Windows available);
+    see windows_checklist.md.
+    """
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0  # SW_HIDE
+    return subprocess.Popen(
+        args,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",  # m7: a bad byte must not kill the reader thread
+        bufsize=1,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        startupinfo=startupinfo,
+    )
+
+
+# Helper de linha única para enviar Ctrl+C a um console alheio. Roda como processo
+# próprio (nunca dentro do processo da GUI) porque um processo só consegue ficar
+# preso a um console por vez, e este aqui não pode se desligar do seu próprio.
+_WINDOWS_CTRL_C_HELPER_SRC = """
+import ctypes
+import sys
+
+pid = int(sys.argv[1])
+kernel32 = ctypes.windll.kernel32
+kernel32.FreeConsole()
+if not kernel32.AttachConsole(pid):
+    sys.exit(1)
+kernel32.SetConsoleCtrlHandler(None, True)
+kernel32.GenerateConsoleCtrlEvent(0, 0)
+"""
+
+
+def _windows_send_ctrl_c(pid: int) -> str:
+    """Deliver Ctrl+C to a trainer running in its own hidden console.
+
+    Sequence: FreeConsole, AttachConsole(pid), SetConsoleCtrlHandler(None, True) so
+    the helper ignores the event it is about to raise, then
+    GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0). Untested in this sandbox; see
+    windows_checklist.md.
+
+    Returns a line for the log area (H3): the helper's return code, and its stderr
+    when not empty, are the only trace of which link failed when a stop does not
+    work. A helper stuck past its 10 s timeout is reported the same way, not raised.
+    """
+    advice = "Se o treino não parar, use Forçar parada quando o botão for liberado."
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _WINDOWS_CTRL_C_HELPER_SRC, str(pid)],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"O envio do Ctrl+C ao treinador passou do tempo limite de 10 s. {advice}"
+    if result.returncode == 0:
+        report = "Ctrl+C enviado ao treinador (código de retorno 0)."
+    else:
+        report = (
+            f"O Ctrl+C não chegou ao treinador (código de retorno {result.returncode}). {advice}"
+        )
+    stderr = (result.stderr or "").strip()
+    if stderr:
+        report += f" Detalhe: {stderr}"
+    return report
+
+
+def _windows_force_kill(pid: int) -> str:
+    """Kill the trainer's entire process tree via taskkill. Untested in this sandbox.
+
+    H4: CREATE_NO_WINDOW keeps taskkill, a console program started from a GUI
+    process, from flashing a console window. Returns a line for the log area
+    with its return code.
+    """
+    result = subprocess.run(
+        ["taskkill", "/F", "/T", "/PID", str(pid)],
+        capture_output=True,
+        check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    return f"Parada forçada: o taskkill terminou com código {result.returncode}."
+
+
+class ManagedProcess:
+    """Owns one child process (trainer or watch session) across its whole life.
+
+    Output is handed off through a thread-safe queue: a background thread reads
+    stdout line by line and the caller (the Tk event loop, via after()) drains it
+    with poll_output(). Nothing here ever touches Tk directly, so it can be driven
+    from plain tests with the fake trainer.
+    """
+
+    def __init__(
+        self,
+        args: list[str],
+        cwd: Path,
+        *,
+        python_bin: Path,
+        graceful_timeout_s: float = GRACEFUL_STOP_TIMEOUT_S,
+        system: str | None = None,
+    ) -> None:
+        """Store launch parameters; start() actually spawns the child.
+
+        python_bin is only used on POSIX, to run the SIGINT-reset wrapper ahead of
+        args (see _posix_wrap_for_sigint_reset); Windows's Ctrl+C delivery does not
+        need it.
+        """
+        self.args = args
+        self.cwd = cwd
+        self.python_bin = python_bin
+        self.graceful_timeout_s = graceful_timeout_s
+        self.system = system or platform.system()
+        self.output_queue: queue.Queue[str] = queue.Queue()
+        self.exit_code: int | None = None
+        self._proc: subprocess.Popen | None = None
+        self._reader_thread: threading.Thread | None = None
+        self._graceful_stop_requested_at: float | None = None
+
+    def start(self) -> None:
+        """Spawn the child process and start reading its output in the background."""
+        if self.system == "Windows":
+            self._proc = _windows_popen(self.args, self.cwd)
+        else:
+            self._proc = _posix_popen(self.args, self.cwd, self.python_bin)
+        self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+        self._reader_thread.start()
+
+    def _read_output(self) -> None:
+        """Background-thread body: stream stdout lines, then capture the exit code."""
+        assert self._proc is not None and self._proc.stdout is not None
+        for line in iter(self._proc.stdout.readline, ""):
+            self.output_queue.put(line.rstrip("\n"))
+        self.exit_code = self._proc.wait()
+
+    def poll_output(self) -> list[str]:
+        """Drain every output line queued since the last call, without blocking."""
+        lines: list[str] = []
+        while True:
+            try:
+                lines.append(self.output_queue.get_nowait())
+            except queue.Empty:
+                break
+        return lines
+
+    def is_running(self) -> bool:
+        """True while the child process is still alive."""
+        return self._proc is not None and self._proc.poll() is None
+
+    @property
+    def returncode(self) -> int | None:
+        """The child's exit code, or None if it has not exited yet.
+
+        Prefer this over exit_code right after is_running() turns False: exit_code
+        is only set by the reader thread after it observes EOF and calls wait(),
+        which can lag is_running() becoming False by a beat (seen ~7% of the time
+        against a stand-in reader/worker pair). poll() reflects the OS state
+        directly and needs no such race.
+        """
+        return None if self._proc is None else self._proc.poll()
+
+    def finish_reading(self, timeout: float = 2.0) -> list[str]:
+        """Join the reader thread (bounded) and drain whatever it queued.
+
+        Call this before reading returncode/output at the end of a run, so the
+        last lines the process printed (often the ones with the actual hint) are
+        not lost to a poll() that raced ahead of the reader thread.
+        """
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout)
+        return self.poll_output()
+
+    def request_graceful_stop(self) -> str | None:
+        """Ask the child to stop the way a terminal Ctrl+C would.
+
+        Returns a line for the log area on Windows (H3: the Ctrl+C helper's
+        result), or None.
+        """
+        if self._proc is None:
+            return None
+        self._graceful_stop_requested_at = time.monotonic()
+        if self.system == "Windows":
+            return _windows_send_ctrl_c(self._proc.pid)
+        _posix_graceful_stop(self._proc)
+        return None
+
+    def graceful_timeout_elapsed(self) -> bool:
+        """True once graceful_timeout_s has passed since request_graceful_stop()."""
+        if self._graceful_stop_requested_at is None:
+            return False
+        return (time.monotonic() - self._graceful_stop_requested_at) >= self.graceful_timeout_s
+
+    def force_kill(self) -> str | None:
+        """Kill the whole process tree. The final model of this run may be lost.
+
+        Returns a line for the log area on Windows (H4: taskkill's return code),
+        or None.
+        """
+        if self._proc is None:
+            return None
+        if self.system == "Windows":
+            return _windows_force_kill(self._proc.pid)
+        _posix_force_kill(self._proc)
+        return None
+
+
+def start_tensorboard(
+    python_bin: Path, repo_root: Path, *, system: str | None = None
+) -> subprocess.Popen:
+    """Start `tensorboard --logdir results` as a child with no visible console."""
+    system = system or platform.system()
+    args = resolve_for_execution(build_tensorboard_command(), python_bin)
+    kwargs: dict = {"cwd": repo_root, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if system == "Windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        args = _posix_wrap_for_sigint_reset(args, python_bin)
+    return subprocess.Popen(args, **kwargs)
+
+
+def stop_tensorboard(proc: subprocess.Popen) -> None:
+    """Terminate the TensorBoard child, escalating to kill if it will not quit."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def is_tensorboard_up(url: str = TENSORBOARD_URL, timeout: float = 1.0) -> bool:
+    """True when something already answers at url (ours or someone else's).
+
+    A one-off check (the initial click of the TensorBoard button), so a real
+    HTTP GET is fine here; m8: also catch http.client.HTTPException, which a
+    non-HTTP listener on the port can raise and which is not an OSError.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout):
+            return True
+    except (urllib.error.URLError, OSError, http.client.HTTPException):
+        return False
+
+
+def _tensorboard_port_open(
+    host: str = "127.0.0.1", port: int = 6006, timeout: float = 0.25
+) -> bool:
+    """True if something accepts a TCP connection on host:port right now.
+
+    Used for the *repeated* readiness probe instead of an HTTP GET (M8): on
+    Windows, "localhost" resolves to ::1 first, and TensorBoard/werkzeug binds
+    IPv4 only, so a refused IPv6 connect there can cost about a second per
+    probe. Probing 127.0.0.1 directly by raw TCP connect skips both the DNS
+    step and the HTTP round trip.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+# ----------------------------------------------------------------------------
+# Erros e abrir arquivos/pastas no sistema
+# ----------------------------------------------------------------------------
+
+
+def write_error_log(repo_root: Path, context: str, exc: BaseException) -> Path:
+    """Write a full traceback to disk and return its path.
+
+    Prefers results/ (already gitignored tutorial output); falls back to the
+    system temp folder if results/ cannot be created or written to.
+    """
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    log_name = f"central_de_treino_erro_{timestamp}.log"
+    content = f"Contexto: {context}\n\n" + "".join(
+        traceback.format_exception(type(exc), exc, exc.__traceback__)
+    )
+    try:
+        target_dir = repo_root / "results"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        log_path = target_dir / log_name
+        log_path.write_text(content, encoding="utf-8")
+        return log_path
+    except OSError:
+        log_path = Path(tempfile.gettempdir()) / log_name
+        log_path.write_text(content, encoding="utf-8")
+        return log_path
+
+
+def _file_manager_command(system: str, path: Path) -> list[str]:
+    """Argv to reveal path in the OS file manager. Pure so every branch is testable."""
+    if system == "Darwin":
+        return ["open", str(path)]
+    if system == "Windows":
+        return ["explorer", str(path)]
+    return ["xdg-open", str(path)]
+
+
+def open_results_folder(repo_root: Path, *, system: str | None = None) -> None:
+    """Create results/ if needed and open it in the OS file manager."""
+    system = system or platform.system()
+    results_dir = repo_root / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    subprocess.Popen(_file_manager_command(system, results_dir))
+
+
+def _default_app_command(system: str, path: Path) -> list[str] | None:
+    """Argv to open path in a text editor, or None on Windows (see open_in_default_editor).
+
+    -t makes macOS's `open` use the default *text* editor (per `man open`)
+    instead of whatever, if anything, claims the .yaml extension: a clean lab
+    Mac is unlikely to have any app associated with .yaml at all (M6).
+    """
+    if system == "Darwin":
+        return ["open", "-t", str(path)]
+    if system == "Windows":
+        return None
+    return ["xdg-open", str(path)]
+
+
+def open_in_default_editor(path: Path, *, system: str | None = None) -> None:
+    """Open path with whatever app the OS associates with its file type.
+
+    M6: a clean lab PC likely has nothing associated with .yaml, which silently
+    does nothing on macOS (a plain `open`, no -t, exits 1). G1-W-2: on Windows
+    os.startfile then shows the "Como você deseja abrir este arquivo?" picker
+    instead of raising, so Notepad, always present, comes first there, and
+    os.startfile only if Notepad cannot start.
+    """
+    system = system or platform.system()
+    if system == "Windows":
+        try:
+            subprocess.Popen(["notepad.exe", str(path)])
+        except OSError:
+            os.startfile(str(path))  # type: ignore[attr-defined]  # Windows-only stdlib call
+        return
+    command = _default_app_command(system, path)
+    assert command is not None
+    subprocess.Popen(command)
+
+
+# ----------------------------------------------------------------------------
+# Janela (Tkinter). A classe abaixo só cria widgets dentro de __init__: nada
+# neste módulo cria um objeto Tk antes que alguém instancie CentralDeTreinoApp
+# (normalmente só main(), ou um teste que construiu a raiz Tk de propósito).
+# ----------------------------------------------------------------------------
+
+
+class CentralDeTreinoApp:
+    """The whole window: two config tabs plus a shared start/stop/log area."""
+
+    def __init__(self, root: tk.Tk, repo_root: Path, python_bin: Path | None = None) -> None:
+        """Build every widget and prime the dropdowns from repo_root's contents."""
+        self.root = root
+        self.repo_root = repo_root
+        self.python_bin = python_bin or Path(sys.executable)
+
+        # Seam for tests: swap in a ManagedProcess built against the fake trainer.
+        self._process_factory: Callable[[list[str], Path], ManagedProcess] = lambda args, cwd: (
+            ManagedProcess(args, cwd, python_bin=self.python_bin)
+        )
+
+        self._process: ManagedProcess | None = None
+        self._mode: str | None = None
+        self._run_name: str = ""
+        self._current_behaviors: tuple[str, ...] = ()
+        self._max_steps: int | None = None
+        self._output_history: list[str] = []
+        self._watch_ending: bool = False
+        self._watch_connected: bool = False
+        self._watch_deadline: float | None = None
+        self._stop_requested: bool = False
+        self._stopped_by_time_limit: bool = False
+        self._force_stopped: bool = False
+        self._launched_at: float = 0.0
+        self._closing: bool = False
+        self._build_path: Path | None = None
+        self._tensorboard_proc: subprocess.Popen | None = None
+        self._poll_job: str | None = None
+        self._force_stop_job: str | None = None
+        self._watch_time_limit_job: str | None = None
+        self._verify_job: str | None = None
+        self._verify_proc: subprocess.Popen | None = None
+        self._verify_cancelled: bool = False
+        self._config_widgets: list[tk.Widget] = []
+        self._config_by_label: dict[str, Path] = {}
+        self._runs_by_label: dict[str, TrainedRun] = {}
+
+        self.config_var = tk.StringVar()
+        self.run_name_var = tk.StringVar(value=DEFAULT_RUN_NAME)
+        self.build_var = tk.StringVar()
+        self.show_window_var = tk.BooleanVar(value=True)
+        self.watch_run_var = tk.StringVar()
+        self.time_limit_var = tk.StringVar(value=str(WATCH_DEFAULT_TIME_LIMIT_MIN))
+        self.no_time_limit_var = tk.BooleanVar(value=False)
+        self.command_var = tk.StringVar()
+        self.status_var = tk.StringVar(
+            value="Escolha a configuração do módulo e clique em Iniciar."
+        )
+        self.progress_var = tk.DoubleVar(value=0.0)
+
+        self._build_widgets()
+        self._refresh_config_choices()
+        self._refresh_build_choice()
+        self._refresh_trained_runs()
+        self._update_command_preview()
+
+    # -- construção da janela -------------------------------------------------
+
+    def _build_widgets(self) -> None:
+        # Everything lives under one container frame, instead of directly under
+        # root, so a test can destroy just this app's widgets (gui.container.destroy())
+        # and reuse the same Tk root for the next one. Creating and destroying more
+        # than one tk.Tk() per process is fragile on macOS's Aqua Tk (after() timers
+        # can stop firing for the second interpreter); production only ever builds
+        # one root, in main(), so this only matters for the test suite.
+        self.container = ttk.Frame(self.root)
+        self.container.pack(fill="both", expand=True)
+
+        self.notebook = ttk.Notebook(self.container)
+        self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
+
+        treinar_tab = ttk.Frame(self.notebook, padding=8)
+        assistir_tab = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(treinar_tab, text="Treinar")
+        self.notebook.add(assistir_tab, text="Assistir")
+        self.notebook.bind("<<NotebookTabChanged>>", self._update_command_preview)
+
+        self._build_treinar_tab(treinar_tab)
+        self._build_assistir_tab(assistir_tab)
+        self._build_controls(self.container)
+
+    def _build_treinar_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(1, weight=1)
+
+        ttk.Label(parent, text="Configuração:").grid(row=0, column=0, sticky="w", pady=4)
+        config_combo = ttk.Combobox(parent, textvariable=self.config_var, state="readonly")
+        config_combo.grid(row=0, column=1, sticky="ew", padx=4)
+        config_combo.bind("<<ComboboxSelected>>", self._on_config_selected)
+        self._config_combo = config_combo
+        edit_button = ttk.Button(parent, text="Editar arquivo", command=self.on_edit_config)
+        edit_button.grid(row=0, column=2, padx=4)
+
+        ttk.Label(parent, text="Nome do treino:").grid(row=1, column=0, sticky="w", pady=4)
+        vcmd = (self.root.register(self._validate_run_name_input), "%P")
+        run_name_entry = ttk.Entry(
+            parent, textvariable=self.run_name_var, validate="key", validatecommand=vcmd
+        )
+        run_name_entry.grid(row=1, column=1, sticky="ew", padx=4)
+        self.run_name_var.trace_add("write", self._on_run_name_written)
+
+        ttk.Label(parent, text="Build do jogo:").grid(row=2, column=0, sticky="w", pady=4)
+        build_entry = ttk.Entry(parent, textvariable=self.build_var, state="readonly")
+        build_entry.grid(row=2, column=1, sticky="ew", padx=4)
+        browse_button = ttk.Button(parent, text="Procurar...", command=self.on_browse_build)
+        browse_button.grid(row=2, column=2, padx=4)
+
+        show_window_check = ttk.Checkbutton(
+            parent,
+            text="Mostrar a janela do jogo",
+            variable=self.show_window_var,
+            command=self._update_command_preview,
+        )
+        show_window_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+
+        self._config_widgets.extend(
+            [
+                config_combo,
+                edit_button,
+                run_name_entry,
+                build_entry,
+                browse_button,
+                show_window_check,
+            ]
+        )
+
+    def _build_assistir_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(1, weight=1)
+
+        ttk.Label(parent, text="Treino salvo:").grid(row=0, column=0, sticky="w", pady=4)
+        run_combo = ttk.Combobox(parent, textvariable=self.watch_run_var, state="readonly")
+        run_combo.grid(row=0, column=1, sticky="ew", padx=4)
+        run_combo.bind("<<ComboboxSelected>>", self._on_watch_run_selected)
+        self._run_combo = run_combo
+
+        ttk.Label(parent, text="Limite de tempo (min):").grid(row=1, column=0, sticky="w", pady=4)
+        time_limit_spin = ttk.Spinbox(
+            parent, from_=1, to=60, textvariable=self.time_limit_var, width=6
+        )
+        time_limit_spin.grid(row=1, column=1, sticky="w", padx=4)
+        self.time_limit_var.trace_add("write", self._update_command_preview)
+
+        def _toggle_time_limit() -> None:
+            time_limit_spin.state(["disabled"] if self.no_time_limit_var.get() else ["!disabled"])
+            self._update_command_preview()
+
+        no_limit_check = ttk.Checkbutton(
+            parent,
+            text="Sem limite de tempo",
+            variable=self.no_time_limit_var,
+            command=_toggle_time_limit,
+        )
+        no_limit_check.grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
+
+        ttk.Label(parent, text="Velocidade: normal (tempo real)").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=4
+        )
+
+        self._config_widgets.extend([run_combo, time_limit_spin, no_limit_check])
+
+    def _build_controls(self, parent: tk.Widget) -> None:
+        frame = ttk.Frame(parent, padding=8)
+        frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text="Comando:").grid(row=0, column=0, sticky="w")
+        command_entry = ttk.Entry(frame, textvariable=self.command_var, state="readonly")
+        command_entry.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(frame, text="Copiar comando", command=self.on_copy_command).grid(row=1, column=1)
+
+        button_row = ttk.Frame(frame)
+        button_row.grid(row=2, column=0, columnspan=2, sticky="w", pady=6)
+        self.start_button = ttk.Button(button_row, text="Iniciar", command=self.on_start)
+        self.start_button.pack(side="left", padx=(0, 4))
+        self.stop_button = ttk.Button(button_row, text="Parar", command=self.on_stop)
+        self.stop_button.pack(side="left", padx=4)
+        self.stop_button.state(["disabled"])
+        self.force_button = ttk.Button(button_row, text="Forçar parada", command=self.on_force_stop)
+        self.force_button.pack(side="left", padx=4)
+        self.force_button.state(["disabled"])
+
+        utility_row = ttk.Frame(frame)
+        utility_row.grid(row=3, column=0, columnspan=2, sticky="w")
+        self.verify_button = ttk.Button(
+            utility_row, text="Verificar instalação", command=self.on_verify_env
+        )
+        self.verify_button.pack(side="left", padx=(0, 4))
+        ttk.Button(
+            utility_row, text="Abrir pasta de resultados", command=self.on_open_results
+        ).pack(side="left", padx=4)
+        ttk.Button(utility_row, text="TensorBoard", command=self.on_tensorboard).pack(
+            side="left", padx=4
+        )
+
+        ttk.Label(frame, textvariable=self.status_var).grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(6, 0)
+        )
+        self.progress = ttk.Progressbar(frame, variable=self.progress_var, mode="determinate")
+        self.progress.grid(row=5, column=0, columnspan=2, sticky="ew", pady=4)
+
+        log_frame = ttk.Frame(frame)
+        log_frame.grid(row=6, column=0, columnspan=2, sticky="nsew")
+        frame.rowconfigure(6, weight=1)
+        self.log_text = tk.Text(log_frame, height=12, state="disabled", wrap="word")
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+        self.log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+    # -- estado auxiliar --------------------------------------------------
+
+    def _validate_run_name_input(self, proposed: str) -> bool:
+        return proposed == "" or bool(RUN_NAME_RE.match(proposed))
+
+    def _current_tab(self) -> str:
+        return "treinar" if self.notebook.index(self.notebook.select()) == 0 else "assistir"
+
+    def _refresh_config_choices(self) -> None:
+        configs = find_configs(self.repo_root)
+        self._config_by_label = {_display_path(self.repo_root, path): path for path in configs}
+        self._config_combo["values"] = list(self._config_by_label.keys())
+        default = default_config(self.repo_root)
+        if default is not None:
+            self.config_var.set(_display_path(self.repo_root, default))
+            self._on_config_selected()
+
+    def _on_config_selected(self, *_args: object) -> None:
+        """Apply the newly selected config's doc default run name and window box (B2).
+
+        R2 (G1-P-5, G1-U-3): always, even after a typed name or "Usar outro nome", so
+        each module gets the name and window its docs and slides use. A name typed
+        after choosing the config stays until the config changes again.
+        """
+        config = self._selected_config()
+        if config is not None:
+            run_name, show_window = default_run_settings_for_config(config)
+            self.run_name_var.set(run_name)
+            self.show_window_var.set(show_window)
+        self._update_command_preview()
+
+    def _on_run_name_written(self, *_args: object) -> None:
+        """Keep the command preview in step with the run name field."""
+        self._update_command_preview()
+
+    def _refresh_build_choice(self) -> None:
+        build = find_build(self.repo_root)
+        if build is not None:
+            self._set_build(build)
+
+    def _refresh_trained_runs(self, prefer: str | None = None) -> None:
+        """Reload results/ into the Assistir dropdown, keeping or preselecting a run.
+
+        Called at startup, after every process ends, and whenever the Assistir tab
+        is shown - never just once at startup, or "train, then watch" would still
+        show the pre-training (empty) list until the app was restarted.
+        """
+        current = prefer or self.watch_run_var.get()
+        try:
+            runs = find_trained_runs(self.repo_root)
+        except OSError as exc:
+            # G2a-P-3: like H2 below, a folder that cannot be listed (Windows' access
+            # denied) must not escape: in _finish_process it would skip a pending close.
+            self._append_log(f"Erro ao ler a pasta results/: {exc}")
+            runs = []
+        self._runs_by_label = {run.relative_id: run for run in runs}
+        self._run_combo["values"] = list(self._runs_by_label.keys())
+        for run in runs:
+            # M3: refresh every listed run's own watch config, not only the one
+            # selected, so the command shown for any run in the dropdown is
+            # already pasteable before Iniciar is ever pressed. A run with a
+            # broken configuration.yaml just will not preview/paste cleanly;
+            # that is reported when the attendee actually selects or starts it.
+            try:
+                self._ensure_watch_config(run)
+            except LauncherError:
+                pass
+            except OSError as exc:
+                # H2: a file error (an antivirus lock, a read-only results/ folder)
+                # must not escape: in _finish_process it would skip a pending close.
+                self._append_log(f'Erro ao preparar "{run.relative_id}" para assistir: {exc}')
+        if current in self._runs_by_label:
+            self.watch_run_var.set(current)
+        else:
+            self.watch_run_var.set(runs[0].relative_id if runs else "")
+
+    def _on_watch_run_selected(self, *_args: object) -> None:
+        """Refresh the selected run's own watch config, then the command preview."""
+        run = self._selected_run()
+        if run is not None:
+            try:
+                self._ensure_watch_config(run)
+            except LauncherError as exc:
+                self._show_launcher_error(exc)
+        self._update_command_preview()
+
+    def _watch_config_path(self, run: TrainedRun) -> Path:
+        """Return this run's own generated watch config path.
+
+        M3: one file per run, instead of a single shared
+        results/.central_de_treino/assistir_config.yaml overwritten by whichever
+        run was watched last - which meant the displayed command broke if it was
+        copied and pasted into a terminal before Iniciar was pressed for that
+        specific run, or if a different run was selected afterwards.
+        """
+        safe_id = run.relative_id.replace("/", "_")
+        return WATCH_CONFIG_DIR / f"assistir_{safe_id}.yaml"
+
+    def _ensure_watch_config(self, run: TrainedRun) -> Path:
+        """Write (or refresh) run's generated watch config, and return its path."""
+        dest = self.repo_root / self._watch_config_path(run)
+        generate_watch_config(run.path / "configuration.yaml", dest)
+        return dest
+
+    def _set_build(self, path: Path) -> None:
+        self._build_path = path
+        self.build_var.set(_display_path(self.repo_root, path))
+        self._update_command_preview()
+
+    def _selected_config(self) -> Path | None:
+        return self._config_by_label.get(self.config_var.get())
+
+    def _selected_run(self) -> TrainedRun | None:
+        return self._runs_by_label.get(self.watch_run_var.get())
+
+    def _time_limit_minutes(self) -> float:
+        """The watch time limit, always within the field's 1 to 60 minutes (m9).
+
+        A clamp, not a check: "inf" or "1e9" typed by hand gives 60, and "nan" gives 1.
+        """
+        try:
+            return min(60.0, max(1.0, float(self.time_limit_var.get())))
+        except ValueError:
+            return float(WATCH_DEFAULT_TIME_LIMIT_MIN)
+
+    def _append_log(self, text: str) -> None:
+        if not text:
+            return
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", text + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _set_running_state(self, running: bool) -> None:
+        state = ["disabled"] if running else ["!disabled"]
+        for widget in self._config_widgets:
+            widget.state(state)
+        self.start_button.state(state)
+        self.stop_button.state(["!disabled"] if running else ["disabled"])
+        self.force_button.state(["disabled"])
+        other_tab = 1 if self._current_tab() == "treinar" else 0
+        self.notebook.tab(other_tab, state="disabled" if running else "normal")
+
+    # -- pré-visualização do comando ---------------------------------------
+
+    def _update_command_preview(self, *_args: object) -> None:
+        try:
+            if self._current_tab() == "treinar":
+                args = self._build_preview_train_command()
+            else:
+                if self._process is None:
+                    # B1: also refresh on switching to Assistir (not only after a
+                    # process ends), so a run trained in an earlier app launch, or
+                    # dropped into results/ by hand, shows up without restarting.
+                    self._refresh_trained_runs()
+                args = self._build_preview_watch_command()
+        except LauncherError:
+            self.command_var.set("")
+            return
+        if args is None:
+            self.command_var.set("")
+            return
+        self.command_var.set(format_command_for_display(args))
+
+    def _build_preview_train_command(self) -> list[str] | None:
+        config = self._selected_config()
+        build = self._build_path
+        run_name = self.run_name_var.get().strip()
+        if config is None or build is None or not run_name:
+            return None  # G1-U-9: no name, no command (not one with ppo1 in it)
+        return build_train_command(
+            repo_root=self.repo_root,
+            config=config,
+            run_name=run_name,
+            build=build,
+            show_window=self.show_window_var.get(),
+        )
+
+    def _build_preview_watch_command(self) -> list[str] | None:
+        run = self._selected_run()
+        build = self._build_path
+        if run is None or build is None:
+            return None
+        watch_config = self.repo_root / self._watch_config_path(run)
+        return build_watch_command(
+            repo_root=self.repo_root,
+            watch_config=watch_config,
+            build=build,
+            trained_run_id=run.relative_id,
+        )
+
+    # -- ações: iniciar / parar -------------------------------------------
+
+    def on_start(self) -> None:
+        """Dispatch Start to the training or watch flow, per the active tab.
+
+        R4 (G1-P-3, G1-U-12): never a second trainer. A call while one is tracked does
+        nothing, and Iniciar is off until the start ends, so the second click of a
+        double click cannot land while the name conflict dialog opens.
+        """
+        if self._process is not None:
+            return
+        self.start_button.state(["disabled"])
+        try:
+            if self._current_tab() == "treinar":
+                self._start_training()
+            else:
+                self._start_watch()
+        finally:
+            if self._process is None:
+                self.start_button.state(["!disabled"])
+
+    def _start_training(self) -> None:
+        try:
+            config = self._selected_config()
+            if config is None:
+                raise LauncherError("Nenhuma configuração encontrada em python/configs/.")
+            run_name = self.run_name_var.get().strip()
+            if not run_name:
+                raise LauncherError("Digite um nome para o treino.")  # G1-U-9
+            if not is_valid_run_name(run_name):
+                raise LauncherError(
+                    "Nome do treino inválido: use só letras, números, _ e -, sem espaços."
+                )
+            if run_name.lower() in (WATCH_RUN_ID, "reference"):
+                # m5: both are reserved by this app (assistir_*.yaml configs live
+                # under results/.central_de_treino/, and results/reference/ ships
+                # the tutorial's bundled runs) - training into either would collide.
+                # G1-W-5: in any letter case, as Windows folders ignore it.
+                raise LauncherError(
+                    f'"{run_name}" é um nome reservado da Central de treino. Escolha outro nome.'
+                )
+            build = self._build_path
+            if build is None:
+                raise LauncherError(
+                    "Nenhum build do jogo encontrado em builds/. Use o botão Procurar."
+                )
+            resume = False
+            force = False
+            if run_exists(self.repo_root, run_name):
+                choice = self._ask_run_conflict(run_name)
+                if choice is None:
+                    return
+                action, run_name = choice
+                resume = action == "resume"
+                force = action == "force"
+                if action == "rename":
+                    # Reflect the chosen name back into the field, so the attendee
+                    # sees what is about to run.
+                    self.run_name_var.set(run_name)
+            display_args = build_train_command(
+                repo_root=self.repo_root,
+                config=config,
+                run_name=run_name,
+                build=build,
+                show_window=self.show_window_var.get(),
+                resume=resume,
+                force=force,
+            )
+            self._current_behaviors = tuple(read_behaviors(config).keys())
+            self._max_steps = read_max_steps(config)
+            self._launch(display_args, mode="treinar", run_name=run_name)
+        except LauncherError as exc:
+            self._show_launcher_error(exc)
+        except Exception as exc:  # noqa: BLE001 - último recurso, vira log + aviso curto
+            self._show_unexpected_error("iniciar o treino", exc)
+
+    def _start_watch(self) -> None:
+        try:
+            run = self._selected_run()
+            if run is None:
+                raise LauncherError("Nenhum treino salvo encontrado. Treine um agente primeiro.")
+            build = self._build_path
+            if build is None:
+                raise LauncherError(
+                    "Nenhum build do jogo encontrado em builds/. Use o botão Procurar."
+                )
+            watch_config = self._ensure_watch_config(run)
+            self._current_behaviors = run.behaviors
+            self._max_steps = None
+            display_args = build_watch_command(
+                repo_root=self.repo_root,
+                watch_config=watch_config,
+                build=build,
+                trained_run_id=run.relative_id,
+            )
+            self._launch(display_args, mode="assistir", run_name=WATCH_RUN_ID)
+            if not self.no_time_limit_var.get():
+                minutes = self._time_limit_minutes()
+                self._watch_deadline = time.monotonic() + minutes * 60
+                self._watch_time_limit_job = self.root.after(
+                    int(minutes * 60_000), self._on_watch_time_limit
+                )
+        except LauncherError as exc:
+            self._show_launcher_error(exc)
+        except Exception as exc:  # noqa: BLE001
+            self._show_unexpected_error("assistir ao treino", exc)
+
+    def _ask_run_conflict(self, run_name: str) -> tuple[str, str] | None:
+        """Ask what to do about an existing results/<run_name>.
+
+        B2: the safe choice - a different, never-used name - is offered first,
+        instead of only resume/overwrite. Before this fix the run name defaulted
+        to "ppo1" for every config, so this dialog could easily be about a run
+        from a completely different module than the one currently selected.
+        Returns (action, run_name) with action one of "rename"/"resume"/"force",
+        or None if cancelled.
+
+        G1-U-4: a folder without a model (a first try that failed at start) says
+        so, offers no Continuar, and puts Recomeçar under the same name first.
+        """
+        next_free = next_available_run_name(self.repo_root, run_name)
+        has_model = run_has_saved_model(self.repo_root, run_name)
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Treino já existe")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        if has_model:
+            message = f'Já existe um treino salvo com o nome "{run_name}".\nO que você quer fazer?'
+        else:
+            message = (
+                f'Já existe um treino com o nome "{run_name}", mas ele não salvou nenhum '
+                "modelo.\nO que você quer fazer?"
+            )
+        ttk.Label(dialog, text=message, justify="left", padding=12).pack()
+
+        result: dict[str, tuple[str, str] | None] = {"choice": None}
+
+        def choose(value: tuple[str, str] | None) -> None:
+            result["choice"] = value
+            dialog.destroy()
+
+        rename = (f"Usar outro nome ({next_free})", ("rename", next_free))
+        resume = (
+            f'Continuar o treino "{run_name}" com esta configuração',
+            ("resume", run_name),
+        )
+        force = ("Recomeçar (apaga o anterior)", ("force", run_name))
+        choices = [rename, resume, force] if has_model else [force, rename]
+
+        button_frame = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        button_frame.pack(fill="x")
+        for text, value in choices:
+            ttk.Button(button_frame, text=text, command=lambda value=value: choose(value)).pack(
+                fill="x", pady=2
+            )
+        ttk.Button(button_frame, text="Cancelar", command=lambda: choose(None)).pack(
+            fill="x", pady=2
+        )
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+        # m17: grab_set() before the dialog is actually mapped can raise on some
+        # X11/Linux window managers; wait_visibility() first avoids that.
+        dialog.wait_visibility()
+        dialog.grab_set()
+        dialog.wait_window()
+        return result["choice"]
+
+    def _launch(self, display_args: list[str], *, mode: str, run_name: str) -> None:
+        real_args = resolve_for_execution(display_args, self.python_bin)
+        process = self._process_factory(real_args, self.repo_root)
+        try:
+            process.start()
+        except OSError as exc:
+            # resolve_for_execution already confirmed the file exists; getting here
+            # means it exists but could not actually be run (e.g. not executable,
+            # or the venv's own interpreter is corrupted) - a short, specific
+            # message beats the generic unexpected-error path for this one.
+            raise LauncherError(
+                "No laboratório, chame um instrutor. Não consegui iniciar o treinador. "
+                "O ambiente virtual pode estar corrompido. Reinstale seguindo "
+                "docs/00-instalacao.md.",
+                detail=str(exc),
+            ) from exc
+        self._process = process
+        self._mode = mode
+        self._run_name = run_name
+        self._output_history = []
+        self._watch_ending = False
+        self._watch_connected = False
+        self._watch_deadline = None
+        self._stop_requested = False
+        self._stopped_by_time_limit = False
+        self._force_stopped = False
+        self._closing = False  # G2a-P-4: a close asked for an earlier run is not for this one
+        self._launched_at = time.time()
+        if self._force_stop_job is not None:
+            # M2: a timer left over from a *previous* run (nobody clicked Forçar
+            # parada before this one started) must not fire mid-way through this
+            # one and silently enable Forçar parada on a training that is fine.
+            self.root.after_cancel(self._force_stop_job)
+            self._force_stop_job = None
+        self._set_running_state(True)
+        self.status_var.set("Iniciando...")
+        self.progress_var.set(0.0)
+        self.command_var.set(format_command_for_display(display_args))
+        self._poll_process()
+
+    def _poll_process(self) -> None:
+        process = self._process
+        if process is None:
+            return
+        for line in process.poll_output():
+            self._append_log(line)
+            self._output_history.append(line)
+            if (
+                self._mode == "assistir"
+                and not self._watch_connected
+                and _GAME_CONNECTED_MARKER in line
+            ):
+                self._watch_connected = True
+            if self._mode == "assistir" and not self._watch_ending and _GAME_CLOSED_MARKER in line:
+                # The game was closed; --max-lifetime-restarts=0 means the trainer
+                # is now winding down by itself, not hung and not user-stopped, so
+                # Forçar parada must not appear (graceful_timeout_elapsed() is only
+                # true after request_graceful_stop(), which this path never calls).
+                self._watch_ending = True
+                self.status_var.set("O jogo foi fechado. Encerrando...")
+            summary = parse_summary_line(line)
+            if (
+                summary is not None
+                and self._mode != "assistir"
+                and not self._watch_ending
+                and not self._stop_requested  # G2a-U-16: keep "Parando..." on screen
+            ):
+                self._update_status_from_summary(summary)
+        if (
+            self._mode == "assistir"
+            and self._watch_connected
+            and not self._watch_ending
+            and not self._stop_requested
+        ):
+            # Do not wait for a parsed summary line: at --time-scale=1 the first
+            # one only arrives after ~4 minutes (summary_freq decisions at real
+            # time), so the status is derived from connection + elapsed time instead.
+            # Skipped once a stop was requested (m2), so this does not overwrite
+            # "Parando..." or "Tempo limite atingido..." on the next 100 ms tick.
+            self.status_var.set(self._watch_status_text())
+        if process.is_running():
+            if process.graceful_timeout_elapsed():
+                self.force_button.state(["!disabled"])
+            self._poll_job = self.root.after(100, self._poll_process)
+            return
+        self._poll_job = None
+        self._finish_process()
+
+    def _watch_status_text(self) -> str:
+        """Status shown while a watch session plays, independent of summary lines."""
+        text = "O modelo está jogando. Para encerrar, clique em Parar."
+        if self._watch_deadline is not None:
+            remaining = max(0, int(self._watch_deadline - time.monotonic()))
+            minutes, seconds = divmod(remaining, 60)
+            text += f" Tempo restante: {minutes}m{seconds:02d}s."
+        return text
+
+    def _update_status_from_summary(self, summary: TrainerSummary) -> None:
+        state = "treinando" if summary.is_training else "sem treinar (inferência)"
+        reward = "N/A" if summary.mean_reward is None else f"{summary.mean_reward:.2f}"
+        if self._max_steps:
+            self.progress.configure(mode="determinate", maximum=self._max_steps)
+            self.progress_var.set(min(summary.step, self._max_steps))
+            self.status_var.set(
+                f"Passo {summary.step}/{self._max_steps}, recompensa média {reward} ({state})"
+            )
+        else:
+            self.status_var.set(f"Passo {summary.step}, recompensa média {reward} ({state})")
+
+    def _finish_process(self) -> None:
+        process = self._process
+        assert process is not None
+        # M1: join the reader thread (bounded) before trusting either the output
+        # or the exit code - poll() can already report "not running" a beat
+        # before the reader thread has drained the last lines and called wait().
+        for line in process.finish_reading():
+            self._append_log(line)
+            self._output_history.append(line)
+        returncode = process.returncode
+        if returncode is None:
+            returncode = 0
+        mode = self._mode
+        run_name = self._run_name
+        # m2: only the time limit itself counts, not a Parar pressed by the user in a
+        # watch that merely had a time limit set.
+        time_limit_stopped = self._stopped_by_time_limit
+        self._process = None
+        self._mode = None
+        self._set_running_state(False)
+        hint = diagnose_failure(self._output_history, returncode)
+        if mode == "treinar":
+            # Only a model saved *by this session* counts (M1): a stale .onnx
+            # from an earlier "Continuar"/"Recomeçar" on the same name must not
+            # read as "saved" for a run that just failed or was force-stopped.
+            saved = existing_model_paths(
+                self.repo_root, run_name, self._current_behaviors, saved_since=self._launched_at
+            )
+            if saved:
+                joined = ", ".join(_display_path(self.repo_root, path) for path in saved)
+                self.status_var.set(f"Treino encerrado. Modelo salvo em {joined}.")
+            elif self._force_stopped:
+                # G2a-U-17: the student chose this; it is not an error.
+                self.status_var.set("Treino parado à força. O modelo pode não ter sido salvo.")
+            elif hint:
+                self.status_var.set(f"Treino terminou com erro. {hint}")
+            elif returncode != 0:
+                self.status_var.set(
+                    "O treino parou com erro. "
+                    "Chame um instrutor e mostre as últimas linhas do log abaixo."
+                )
+            else:
+                self.status_var.set("Treino encerrado.")
+        elif watch_ended_by_closing_game(self._output_history):
+            # Normal end, even with a nonzero exit code (a hard-killed game raises
+            # UnityEnvironmentException instead of exiting 0 - see report.md Round 4
+            # Q5); either way this is not a real failure and must not read as one.
+            self.status_var.set("O jogo foi fechado. A exibição terminou.")
+        elif time_limit_stopped:
+            self.status_var.set("Tempo limite atingido. A exibição terminou.")
+        elif hint:
+            self.status_var.set(f"A exibição terminou com erro. {hint}")
+        elif returncode != 0:
+            self.status_var.set(
+                "A exibição parou com erro. "
+                "Chame um instrutor e mostre as últimas linhas do log abaixo."
+            )
+        else:
+            self.status_var.set("A exibição terminou.")
+        if self._watch_time_limit_job is not None:
+            self.root.after_cancel(self._watch_time_limit_job)
+            self._watch_time_limit_job = None
+        if self._force_stop_job is not None:
+            self.root.after_cancel(self._force_stop_job)
+            self._force_stop_job = None
+        # B1: a run that just finished training, or one that just stopped watching,
+        # must show up (or drop out) of the Assistir list right away - otherwise
+        # "train, then watch" only works after restarting the app.
+        self._refresh_trained_runs(prefer=run_name if mode == "treinar" else None)
+        if self._closing:
+            self._close_now()
+
+    def _on_watch_time_limit(self) -> None:
+        self._watch_time_limit_job = None
+        # R1: a stop already under way (Parar, a close) is left alone. _stop_requested
+        # is set by on_stop() only, so the limit's own request always goes through.
+        if self._process is not None and self._mode == "assistir" and not self._stop_requested:
+            self._stopped_by_time_limit = True
+            self.on_stop()
+            # G1-U-10: set after on_stop(), whose "Parando..." used to hide it.
+            self.status_var.set("Tempo limite atingido, parando...")
+
+    def on_stop(self) -> None:
+        """Ask the running process to stop gracefully and arm the force-stop timer.
+
+        R1: once per run, whoever asks first (Parar, a close, the time limit). A second
+        Ctrl+C cuts off the trainer's model export or the game's shutdown.
+        """
+        if self._process is None or self._stop_requested:
+            return
+        self._stop_requested = True
+        self.status_var.set("Parando...")
+        report = self._process.request_graceful_stop()
+        if report is not None:
+            self._append_log(report)  # H3: the Windows Ctrl+C helper's result
+        self.stop_button.state(["disabled"])
+        if self._force_stop_job is not None:
+            self.root.after_cancel(self._force_stop_job)
+        self._force_stop_job = self.root.after(
+            int(self._process.graceful_timeout_s * 1000), self._offer_force_stop
+        )
+
+    def _offer_force_stop(self) -> None:
+        self._force_stop_job = None
+        # M2: also require graceful_timeout_elapsed(), not just "still running" -
+        # without it, a timer left over from a *different, already-stopped* run
+        # could enable Forçar parada on whatever is running now, seconds after it
+        # started, well before its own 30 s are up.
+        if (
+            self._process is not None
+            and self._process.is_running()
+            and self._process.graceful_timeout_elapsed()
+        ):
+            self.force_button.state(["!disabled"])
+            # R6 (G1-P-2): say so, or the button turns on in silence under "Parando...".
+            what = "O treino" if self._mode == "treinar" else "A exibição"
+            self.status_var.set(f"{what} ainda não parou. Se precisar, clique em Forçar parada.")
+
+    def on_force_stop(self) -> None:
+        """Kill the process tree immediately; the final model may not be saved."""
+        if self._process is None:
+            return
+        self._force_stopped = True
+        report = self._process.force_kill()
+        if report is not None:
+            self._append_log(report)  # H4: taskkill's return code
+        self.force_button.state(["disabled"])
+        if self._mode == "assistir":
+            text = "Parada forçada. A exibição terminou."
+        else:
+            text = "Parada forçada. O último modelo deste treino pode não ter sido salvo."
+        messagebox.showwarning("Central de treino", text)
+
+    # -- outras ações ------------------------------------------------------
+
+    def on_copy_command(self) -> None:
+        """Copy the currently displayed command to the clipboard."""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.command_var.get())
+
+    def on_browse_build(self) -> None:
+        """Let the user pick the game build by hand when auto-detection misses it."""
+        system = platform.system()
+        filetypes = (
+            [("Executável", "*.exe")] if system == "Windows" else [("Todos os arquivos", "*")]
+        )
+        initial = self.repo_root / "builds"
+        chosen = filedialog.askopenfilename(
+            title="Escolha o executável do jogo",
+            initialdir=str(initial if initial.is_dir() else self.repo_root),
+            filetypes=filetypes,
+        )
+        if chosen:
+            self._set_build(Path(chosen))
+
+    def on_edit_config(self) -> None:
+        """Open the selected config file in the system's default editor."""
+        config = self._selected_config()
+        if config is None:
+            return
+        try:
+            open_in_default_editor(config)
+        except Exception as exc:  # noqa: BLE001
+            self._show_unexpected_error("abrir o arquivo de configuração", exc)
+
+    def on_verify_env(self) -> None:
+        """Run scripts/verify_env.py in the background and log its output.
+
+        T9c: the button stays disabled while the check runs, and the log area and the
+        status line say at once that it runs. The worker thread never touches Tk: it
+        puts its outcome on a queue that _poll_verify_env drains on the Tk thread.
+        """
+        display_args = build_verify_env_command()
+        self._append_log("$ " + format_command_for_display(display_args))
+        try:
+            real_args = resolve_for_execution(display_args, self.python_bin)
+        except LauncherError as exc:
+            self._append_log(exc.message)
+            if exc.detail:
+                self._append_log(exc.detail)
+            return
+        self.verify_button.state(["disabled"])
+        self._append_log("Verificando a instalação. Na primeira vez, pode levar até um minuto.")
+        self._verify_env_status("Verificando a instalação. Pode levar até um minuto.")
+        results: queue.Queue[tuple[str, str, int | None]] = queue.Queue()
+        threading.Thread(
+            target=self._run_verify_env, args=(real_args, results), daemon=True
+        ).start()
+        self._poll_verify_env(results)
+
+    def _run_verify_env(
+        self, args: list[str], results: queue.Queue[tuple[str, str, int | None]]
+    ) -> None:
+        """Worker thread: run the check, then put (kind, output, exit code) on results.
+
+        kind is "fim", "demorou" (stopped at VERIFY_ENV_TIMEOUT_S) or "erro" (could not
+        start). Something always goes on the queue, so the button always comes back.
+        """
+        outcome: tuple[str, str, int | None] = ("erro", "", None)
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=self.repo_root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",  # T9c-4: a bad byte must not hide the whole result
+            )
+            # Publish first, then check: _close_now sets the flag first, then reads the
+            # handle, so one of the two always kills a check the window outlived.
+            self._verify_proc = proc
+            if self._verify_cancelled:
+                proc.kill()
+            try:
+                output, _ = proc.communicate(timeout=VERIFY_ENV_TIMEOUT_S)
+                outcome = ("fim", output or "", proc.returncode)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    output, _ = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    output = ""
+                outcome = ("demorou", output or "", None)
+        except Exception as exc:  # noqa: BLE001
+            outcome = ("erro", str(exc), None)
+        finally:
+            results.put(outcome)
+
+    def _poll_verify_env(self, results: queue.Queue[tuple[str, str, int | None]]) -> None:
+        """Tk thread: wait for the worker's outcome without blocking the window."""
+        self._verify_job = None
+        if not self.verify_button.winfo_exists():
+            return
+        try:
+            kind, output, returncode = results.get_nowait()
+        except queue.Empty:
+            self._verify_job = self.root.after(100, lambda: self._poll_verify_env(results))
+            return
+        self._on_verify_env_result(kind, output, returncode)
+
+    def _on_verify_env_result(self, kind: str, output: str, returncode: int | None) -> None:
+        self._verify_proc = None
+        self.verify_button.state(["!disabled"])
+        if kind == "erro":
+            message = "Não consegui iniciar a verificação. Chame um instrutor."
+            self._append_log(message)
+            self._append_log(f"Detalhe técnico: {output}")
+            self._verify_env_status(message)
+            return
+        # The script's own lines, as printed, so that its Resumo line ends the log area.
+        self._append_log(output.rstrip("\n"))
+        if kind == "demorou":
+            message = (
+                "A verificação demorou demais e foi interrompida. "
+                "Clique mais uma vez. Se repetir, chame um instrutor."
+            )
+            self._append_log(message)
+            self._verify_env_status(message)
+        elif returncode == 0:
+            summary = [line for line in output.splitlines() if line.startswith("Resumo:")]
+            self._verify_env_status(summary[-1] if summary else "Verificação concluída.")
+        else:
+            self._verify_env_status("A verificação encontrou uma falha. Chame um instrutor.")
+
+    def _verify_env_status(self, text: str) -> None:
+        """The status line belongs to a running training or watch; only the log gets text then."""
+        if self._process is None:
+            self.status_var.set(text)
+
+    def on_open_results(self) -> None:
+        """Open results/ in the OS file manager."""
+        try:
+            open_results_folder(self.repo_root)
+        except Exception as exc:  # noqa: BLE001
+            self._show_unexpected_error("abrir a pasta de resultados", exc)
+
+    def on_tensorboard(self) -> None:
+        """Open TensorBoard in the browser, starting it first if needed.
+
+        H7: every click leaves a line in the log area at once. H5: the first check
+        is the raw 127.0.0.1 TCP probe the later checks use too, never urlopen. It
+        runs here, on the Tk thread, because the click must decide at once, and the
+        probe's 0.25 s timeout bounds it.
+        """
+        if _tensorboard_port_open():
+            # H6: already up (ours or another one): every click opens the page again.
+            self._tensorboard_status("O TensorBoard já está aberto. Abrindo a página no navegador.")
+            webbrowser.open(TENSORBOARD_URL)
+            return
+        if self._tensorboard_proc is not None and self._tensorboard_proc.poll() is None:
+            # m8: still starting; a second click must not launch a second TensorBoard
+            # and drop the handle to the first one. The wait already running opens
+            # the page once it answers, even after its 30 s deadline.
+            self._tensorboard_status(
+                "O TensorBoard ainda está iniciando. "
+                "A página abre sozinha quando ele estiver pronto."
+            )
+            return
+        try:
+            self._tensorboard_proc = start_tensorboard(self.python_bin, self.repo_root)
+        except Exception as exc:  # noqa: BLE001
+            self._tensorboard_status("Não consegui iniciar o TensorBoard. Tente o botão de novo.")
+            self._show_unexpected_error("abrir o TensorBoard", exc)
+            return
+        self._tensorboard_status(
+            "Iniciando o TensorBoard. A página abre sozinha quando ele estiver pronto."
+        )
+        self._poll_tensorboard_ready(time.monotonic() + TENSORBOARD_READY_TIMEOUT_S)
+
+    def _tensorboard_status(self, text: str) -> None:
+        """Show a TensorBoard progress message in the log area, always (H7), and on
+        the status line only when nothing else runs, so it never steps on an active
+        train/watch status (m8: seen replacing a live watch status in evidence).
+        """
+        self._append_log(text)
+        if self._process is None:
+            self.status_var.set(text)
+
+    def _poll_tensorboard_ready(self, deadline: float) -> None:
+        if self._tensorboard_proc is not None and self._tensorboard_proc.poll() is not None:
+            # m8: died on its own (e.g. the port was already taken by something
+            # non-HTTP) - do not wait out the rest of the 30 s to notice.
+            self._tensorboard_proc = None
+            self._tensorboard_status("O TensorBoard não conseguiu abrir. Chame um instrutor.")
+            return
+        if time.monotonic() >= deadline:
+            # H6: slow is not failed. Keep probing while it runs, so the page still
+            # opens by itself, and say so once: an infinite deadline never repeats it.
+            self._tensorboard_status(
+                "O TensorBoard está demorando. A página abre sozinha quando ele estiver pronto."
+            )
+            deadline = float("inf")
+
+        def _probe() -> None:
+            # M8: the socket probe runs off the Tk thread; only the (cheap)
+            # continuation is handed back via after(), so this never blocks the
+            # window even when a probe takes its full timeout to refuse.
+            up = _tensorboard_port_open()
+            self.root.after(0, lambda: self._on_tensorboard_probe_result(up, deadline))
+
+        threading.Thread(target=_probe, daemon=True).start()
+
+    def _on_tensorboard_probe_result(self, up: bool, deadline: float) -> None:
+        if up:
+            self._tensorboard_status("TensorBoard pronto. Abrindo a página no navegador.")
+            webbrowser.open(TENSORBOARD_URL)
+            return
+        self.root.after(450, lambda: self._poll_tensorboard_ready(deadline))
+
+    def _show_launcher_error(self, exc: LauncherError) -> None:
+        """Show a LauncherError's short message, and log its technical detail.
+
+        M9: exc.detail (e.g. the exact PyYAML error text) used to be attached to
+        every LauncherError but never actually shown anywhere; this is the one
+        place all of them go through now.
+        """
+        messagebox.showerror("Central de treino", exc.message)
+        if exc.detail:
+            self._append_log(exc.detail)
+
+    def _show_unexpected_error(self, context: str, exc: Exception) -> None:
+        log_path = write_error_log(self.repo_root, context, exc)
+        # Written to the log area too, so the path survives after the dialog closes.
+        self._append_log(
+            f"Erro inesperado ao {context}. Log: {_display_path(self.repo_root, log_path)}"
+        )
+        self._show_error_dialog(
+            message=(
+                f"Ocorreu um erro inesperado ao {context}. "
+                "Mostre o caminho abaixo a quem estiver ajudando."
+            ),
+            log_path=log_path,
+        )
+
+    def _show_error_dialog(self, *, message: str, log_path: Path) -> None:
+        """A small, copyable error window: message, a selectable log path, and
+        buttons to open the log or copy its path.
+
+        A plain messagebox has no selectable text on some platforms, so a
+        beginner asked to "send the log path" cannot copy it out; this dialog
+        exists specifically so they can.
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Erro na Central de treino")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        ttk.Label(
+            dialog, text=message, justify="left", wraplength=360, padding=(12, 12, 12, 4)
+        ).pack(fill="x")
+        path_text = _display_path(self.repo_root, log_path)
+        # m1: the text lives in the Entry itself, not in a throwaway StringVar that
+        # the garbage collector frees, which left the field empty.
+        path_entry = ttk.Entry(dialog)
+        path_entry.insert(0, path_text)
+        path_entry.state(["readonly"])
+        path_entry.pack(fill="x", padx=12, pady=(0, 8))
+
+        def _open_log() -> None:
+            # Best effort: the path is already shown and copyable either way, so a
+            # failure to launch an editor here is not worth its own error dialog.
+            try:
+                open_in_default_editor(log_path)
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        def _copy_path() -> None:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(path_text)
+
+        button_row = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        button_row.pack(fill="x")
+        ttk.Button(button_row, text="Abrir o log", command=_open_log).pack(side="left", padx=(0, 4))
+        ttk.Button(button_row, text="Copiar caminho", command=_copy_path).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Fechar", command=dialog.destroy).pack(side="left", padx=4)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+
+    def on_close(self) -> None:
+        """Ask before closing if something is running, then stop it and close.
+
+        M5: the old version blocked the Tk thread in a time.sleep loop for up to
+        10 s and then force-killed without asking, freezing the window ("Não
+        respondendo" on Windows) and risking the final export. This version asks
+        first, then reuses the normal Parar path (graceful stop, the usual 30 s
+        Forçar parada offer) and lets the ordinary poll loop finish the job;
+        _finish_process() closes the window once the process actually stops.
+        """
+        if self._process is not None and self._process.is_running():
+            if self._stop_requested:
+                # R1: a stop is already under way: ask nothing, send nothing, and
+                # close once the process ends (_finish_process checks _closing).
+                self._closing = True
+                return
+            if self._mode == "assistir":
+                question = "O modelo está jogando. Parar e fechar?"
+            else:
+                question = "Um treino está rodando. Parar, salvar o modelo e fechar a Central?"
+            if not messagebox.askyesno("Central de treino", question):
+                return
+            if self._process is None or not self._process.is_running():
+                # G2a-P-4: the run ended by itself while the question was open.
+                self._close_now()
+                return
+            self._closing = True
+            self.on_stop()
+            return
+        self._close_now()
+
+    def _close_now(self) -> None:
+        """Stop TensorBoard if running, cancel pending timers, and destroy the root."""
+        if self._tensorboard_proc is not None:
+            stop_tensorboard(self._tensorboard_proc)
+        # T9c: a check still running dies with the window (see _run_verify_env).
+        self._verify_cancelled = True
+        if self._verify_proc is not None:
+            self._verify_proc.kill()
+        # Cancel any pending after() timers explicitly instead of relying on
+        # destroy() to discard them: a scheduled _poll_process tick that still
+        # fires mid-teardown would touch widgets that no longer exist.
+        jobs = (self._poll_job, self._force_stop_job, self._watch_time_limit_job, self._verify_job)
+        for job in jobs:
+            if job is not None:
+                self.root.after_cancel(job)
+        self.root.destroy()
+
+
+def tcl_tk_failure_message(exc: BaseException) -> str:
+    """Short PT-BR explanation for when tk.Tk() still fails after auto-discovery."""
+    return (
+        "No laboratório, chame um instrutor.\n"
+        "Não consegui abrir a janela porque este Python não encontrou o Tcl/Tk.\n"
+        "Provavelmente o ambiente virtual está com um problema de instalação.\n"
+        "Rode scripts/verify_env.py para checar o ambiente, ou reinstale seguindo "
+        "docs/00-instalacao.md.\n"
+        f"Detalhe técnico: {exc}"
+    )
+
+
+def report_startup_failure(root: tk.Tk, repo_root: Path, exc: BaseException) -> None:
+    """S1 (G1-W-3): log a failure while main() builds the window, and show it in a Tk
+    message box. Under pythonw there is no console, so nothing else would show it."""
+    message = "Ocorreu um erro inesperado ao abrir a Central de treino."
+    try:
+        log_path = write_error_log(repo_root, "abrir a Central de treino", exc)
+        message += (
+            " Mostre o caminho abaixo a quem estiver ajudando.\n\n"
+            f"{_display_path(repo_root, log_path)}"
+        )
+    except OSError:
+        message += f"\n\nDetalhe técnico: {exc}"
+    print(message, file=sys.stderr)  # a no-op under pythonw, where sys.stderr is None
+    try:
+        root.withdraw()
+        messagebox.showerror("Central de treino", message, parent=root)
+        root.destroy()
+    except Exception:  # noqa: BLE001, S110 - last resort: the process exits right after
+        pass
+
+
+def main() -> None:
+    """Entry point: build the real Tk window and run the event loop."""
+    ensure_tcl_tk_discoverable()
+    repo_root = Path.cwd()
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        # No window exists yet to show this in, so print it: the starter scripts
+        # (central_de_treino.command / .cmd) keep the terminal open on a nonzero
+        # exit specifically so this stays on screen and can be copied.
+        print(tcl_tk_failure_message(exc), file=sys.stderr)
+        sys.exit(1)
+    try:
+        root.title("Central de treino")
+        # m19: fit small screens (1366x768 at 125% scaling is about 1093x614 for Tk)
+        # and keep 900x680 where it fits. The position has its own call, made first:
+        # a later size-only geometry() keeps it.
+        width = min(900, root.winfo_screenwidth() - 40)
+        height = min(680, root.winfo_screenheight() - 110)
+        root.geometry("+10+10")
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(760, width), min(560, height))
+        app = CentralDeTreinoApp(root, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001 - S1: any failure here must reach the user
+        report_startup_failure(root, repo_root, exc)
+        sys.exit(1)
+
+    def _report_callback_exception(
+        exc_type: type[BaseException], exc: BaseException, tb: object
+    ) -> None:
+        # H1: Tk's default handler prints to sys.stderr, which is None under pythonw,
+        # so a failing button would just do nothing. Use the app's error log and
+        # dialog instead. Never raise here: that would end mainloop() and the app.
+        try:
+            app._show_unexpected_error("executar uma ação", exc)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    root.report_callback_exception = _report_callback_exception
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

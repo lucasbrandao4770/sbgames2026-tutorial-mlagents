@@ -102,6 +102,7 @@ Regras do dia:
 - [`docs/02-imitacao.md`](docs/02-imitacao.md): gravação de demonstrações com o Demonstration Recorder e a receita completa de BC e GAIL.
 - [`docs/03-projeto-final.md`](docs/03-projeto-final.md): o desafio de design do Módulo 3 e o roteiro para projetar um ambiente próprio do zero.
 - [`docs/04-guia-de-referencia.md`](docs/04-guia-de-referencia.md): lições, soluções e gargalos práticos registrados ao longo do tutorial.
+- [`docs/05-central-de-treino.md`](docs/05-central-de-treino.md): a Central de treino, uma janela que roda os comandos de treinar, assistir e abrir o TensorBoard.
 
 ## Resultados de referência
 
